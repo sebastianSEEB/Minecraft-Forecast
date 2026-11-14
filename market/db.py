@@ -35,6 +35,13 @@ CREATE TABLE IF NOT EXISTS hourly (            -- hourly bars; what the forecast
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
 
+# Columns added after the first release; created on existing databases automatically.
+MIGRATIONS = {
+    "ah_sale": [("seller", "TEXT"), ("buyer", "TEXT")],
+    "lbin_now": [("second_bin", "REAL"), ("p25", "REAL"), ("median_listed", "REAL"),
+                 ("sellers", "INTEGER"), ("top_share", "REAL")],
+}
+
 
 class Database:
     def __init__(self, path: str):
@@ -43,6 +50,11 @@ class Database:
         self.write_lock = threading.Lock()
         with self.connect() as c:
             c.executescript(SCHEMA)
+            for table, cols in MIGRATIONS.items():
+                have = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+                for name, typ in cols:
+                    if name not in have:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
 
     def connect(self) -> sqlite3.Connection:
         c = sqlite3.connect(self.path, timeout=30, check_same_thread=False)

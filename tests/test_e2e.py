@@ -42,7 +42,8 @@ for h in range(now_h - 24 * 30, now_h):
         for i in range(random.randint(0, 3)):
             ts = h * HOUR_MS + random.randint(0, HOUR_MS - 1)
             price = fake._price(base, ts / 1000) * cnt
-            c.execute("INSERT INTO ah_sale VALUES(?,?,?,?,?,?,?,?)", (f"bf{h}{k}{i}", ts, k, extra["id"], price, cnt, price / cnt, 1))
+            c.execute("INSERT INTO ah_sale(auction_id, ts, item_key, item_id, price, count, unit_price, bin, seller, buyer) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                      (f"bf{h}{k}{i}", ts, k, extra["id"], price, cnt, price / cnt, 1, f"s{h}{i}", f"b{h}{i}"))
             touched.add((k, h))
 c.executemany(UPSERT_HOURLY, rows)
 recompute_ah_hours(c, touched)
@@ -71,6 +72,9 @@ hp = [r["hours_to_peak"] for r in seas["rows"]]
 assert hp == sorted(hp)
 doc = get("/itemdata/BOOSTER_COOKIE")
 assert doc["stats"]["30d"]["buy"]["avg"] and len(doc["daily"]["buy"]) >= 30, doc["stats"]
+hyp = get("/itemdata/HYPERION")
+print("MARKET HYPERION", {k: hyp["market"][k] for k in ("fair", "resale", "risk", "flags")}, hyp["market"]["listed"])
+assert hyp["market"]["listed"]["count"] > 50 and hyp["market"]["fair"] > 9e8
 doc2 = json.load(open(f"{tmp}/site/data/items/INK_SACK__3.json"))
 assert doc2["k"] == "INK_SACK:3"
 for k in ["ENCHANTED_DIAMOND", "BOOSTER_COOKIE", "HYPERION", "PET_ENDER_DRAGON_LEGENDARY",

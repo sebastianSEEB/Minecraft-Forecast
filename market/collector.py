@@ -159,11 +159,13 @@ class EndedJob(Job):
             if price <= 0:
                 continue
             ts = int(a.get("timestamp") or data.get("lastUpdated") or time.time() * 1000)
-            rows.append((a["auction_id"], ts, key, item_id, price, count, price / count, int(bool(a.get("bin")))))
+            rows.append((a["auction_id"], ts, key, item_id, price, count, price / count, int(bool(a.get("bin"))),
+                         a.get("seller"), a.get("buyer")))
         new = 0
         with self.db.write_lock, c:
             for r in rows:
-                cur = c.execute("INSERT OR IGNORE INTO ah_sale VALUES(?,?,?,?,?,?,?,?)", r)
+                cur = c.execute("INSERT OR IGNORE INTO ah_sale(auction_id, ts, item_key, item_id, price, count, unit_price, bin, seller, buyer) "
+                                "VALUES(?,?,?,?,?,?,?,?,?,?)", r)
                 if cur.rowcount:
                     new += 1
                     touched.add((r[2], r[1] // HOUR_MS))
@@ -186,7 +188,7 @@ class ActiveAHJob(Job):
         first = self.api.auctions_page(0)
         ts = int(first.get("lastUpdated") or time.time() * 1000)
         pages = int(first.get("totalPages") or 1)
-        best: dict[str, list] = {}           # key -> [lowest unit price, listings]
+        listings: dict[str, list] = {}       # key -> [(unit price, seller), ...]
         seen = set()
         for p in range(pages):
             data = first if p == 0 else self.api.auctions_page(p)
@@ -207,22 +209,28 @@ class ActiveAHJob(Job):
                 unit = float(a.get("starting_bid") or 0) / cnt
                 if unit <= 0:
                     continue
-                b = best.get(k)
-                if b is None:
-                    best[k] = [unit, 1]
-                else:
-                    b[0] = min(b[0], unit)
-                    b[1] += 1
+                listings.setdefault(k, []).append((unit, a.get("auctioneer")))
         self.decoded = {u: v for u, v in self.decoded.items() if u in seen}
         hour = ts // HOUR_MS
-        bar_rows = [self.bars.add(c, f"lbin:{k}", hour, v[0]) for k, v in best.items()]
+        now_rows, bar_rows = [], []
+        for k, lst in listings.items():
+            prices = sorted(p for p, _ in lst)
+            n = len(prices)
+            per_seller: dict = {}
+            for _, sel in lst:
+                per_seller[sel] = per_seller.get(sel, 0) + 1
+            now_rows.append((k, ts, prices[0], n, prices[1] if n > 1 else None, prices[int(0.25 * (n - 1))],
+                             statistics.median(prices), len(per_seller), max(per_seller.values()) / n))
+            bar_rows.append(self.bars.add(c, f"lbin:{k}", hour, prices[0]))
+            bar_rows.append(self.bars.add(c, f"listn:{k}", hour, float(n)))
         with self.db.write_lock, c:
             c.execute("DELETE FROM lbin_now")
-            c.executemany("INSERT INTO lbin_now VALUES(?,?,?,?)", [(k, ts, v[0], v[1]) for k, v in best.items()])
+            c.executemany("INSERT INTO lbin_now(item_key, ts, lowest_bin, listings, second_bin, p25, median_listed, sellers, top_share) "
+                          "VALUES(?,?,?,?,?,?,?,?,?)", now_rows)
             c.executemany(UPSERT_HOURLY, bar_rows)
             Database.set_meta(c, "active_last", ts)
-        _status(self.name_, last_ts=ts, pages=pages, items=len(best))
-        log.info("active auctions: %d pages, %d distinct BIN items", pages, len(best))
+        _status(self.name_, last_ts=ts, pages=pages, items=len(listings))
+        log.info("active auctions: %d pages, %d distinct BIN items", pages, len(listings))
 
 
 class MaintenanceJob(Job):

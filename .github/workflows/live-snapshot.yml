@@ -30,6 +30,7 @@ jobs:
         run: |
           python tests/test_forecast.py
           python tests/test_seasonality.py
+          python tests/test_market.py
       - name: Collect from live Hypixel API
         run: |
           cat > config.json <<'JSON'

@@ -123,7 +123,7 @@ def active_page(page):
     if not ACTIVE:
         for i in range(2500):
             extra, base, cnt = random.choice(AH)
-            ACTIVE.append({"uuid": uuid.uuid4().hex, "auctioneer": "x", "profile_id": "y", "coop": [],
+            ACTIVE.append({"uuid": uuid.uuid4().hex, "auctioneer": uuid.uuid4().hex[:6] if random.random() < 0.8 else "bigseller", "profile_id": "y", "coop": [],
                            "start": 0, "end": 0, "item_name": "Item", "item_lore": "", "extra": "", "category": "weapon",
                            "tier": "LEGENDARY", "starting_bid": round(base * cnt * random.uniform(0.95, 1.4)),
                            "item_bytes": item_bytes(extra, cnt), "claimed": False, "claimed_bidders": [],

@@ -44,6 +44,22 @@ over the last 72 h, with the 7-day average as fallback. You get one of **GREAT B
 * a "wait" hint when the forecast or a confirmed seasonal dip says it will get cheaper within 24 h
 Bazaar items are judged by the live buy price against the 7-day average. Turn it off with `"showVerdict": false`.
 
+**Flip banner** (bold, right under the item name):
+* `✔ PROFIT FLIP`: a BIN you can buy and resell for at least `minFlipProfitPercent` (default 5%) after fees
+* `✔ WORTH BIDDING: bid up to X`: an auction whose current bid is still under the highest bid that leaves 5% profit
+
+Resale is capped just under the cheapest competing BIN, because you can't sell above the competition. The banner
+is never shown for items with fewer than 3 sales in 24 h, or when manipulation is flagged.
+
+**Fair value and manipulation checks** (`market/marketcheck.py`, also shown on the dashboard as "Market check"):
+* fair value = median of three estimates: clean sold median (72 h), cheapest-25% of current listings, and 7-day average
+* **wash trading**: the same seller→buyer pair trading repeatedly. These sales are flagged and left out of fair value.
+* **cornering**: listings down ≥ 50% vs the 7-day average while the price is up ≥ 30%
+* **spike**: ≥ 40% above the 30-day average
+* **dominant seller**: one seller owns ≥ 50% of the listings
+* **thin market**: few sales
+* bazaar only: spike vs the 7-day average, thin order book, huge buy/sell spread
+
 In-game you get the tooltip lines plus **`/skyprice`** (held item) or **`/skyprice <item>`** (e.g. `/skyprice hyperion`),
 which prints the full summary, the last 14 daily prices and every tested seasonal cycle in chat.
 Settings: `.minecraft/config/skyprice.json` (sources, refresh times, which lines to show).

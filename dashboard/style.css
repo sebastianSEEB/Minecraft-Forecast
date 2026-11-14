@@ -120,3 +120,10 @@ details.how summary { cursor: pointer; color: var(--text-secondary); }
 footer { margin-top: 28px; color: var(--text-muted); font-size: 12px; }
 .empty { padding: 30px; text-align: center; color: var(--text-muted); }
 a { color: var(--series-1); }
+
+.risk1 { color: var(--accent); margin-left: 6px; } .risk2 { color: var(--critical); margin-left: 6px; }
+.mcheck { margin-top: 14px; background: var(--surface-2); border-radius: 8px; padding: 12px 14px; }
+.mcheck .row { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); }
+.mcheck .row b { color: var(--text-primary); font-weight: 600; }
+.mcheck ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+.mcheck li.l2 { color: var(--critical); } .mcheck li.l1 { color: var(--accent); }

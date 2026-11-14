@@ -18,6 +18,7 @@ import time
 
 from .config import Config
 from .db import HOUR_MS
+from .marketcheck import auction_check, bazaar_check
 from .seasonality import detect_all
 from .stats import item_stats
 
@@ -133,6 +134,16 @@ def _window_stats(c, series: str, now_h: int, hours: int | None) -> dict | None:
 WINDOWS = {"24h": 24, "7d": 168, "30d": 720, "all": None}
 
 
+def round_all(v):
+    if isinstance(v, float):
+        return r4(v)
+    if isinstance(v, dict):
+        return {k: round_all(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [round_all(x) for x in v]
+    return v
+
+
 def _slim_forecast(f: dict | None) -> dict | None:
     if not f or not f.get("available"):
         return {"available": False, "hours_of_data": (f or {}).get("hours_of_data", 0),
@@ -197,6 +208,14 @@ def item_detail(c, key: str, cfg: Config, now_ms: int | None = None, summary: di
         doc["stats"] = {w: {"sold": _window_stats(c, f"ah:{key}", now_h, h), "lbin": _window_stats(c, f"lbin:{key}", now_h, h)}
                         for w, h in WINDOWS.items()}
         main_series, main_col = f"ah:{key}", "median"
+
+    # fair value (sold + listed), realistic resale, manipulation flags
+    mk = round_all(bazaar_check(c, key, now_ms) if bz else auction_check(c, key, now_ms))
+    doc["market"] = mk
+    summary["fair"] = mk.get("fair")
+    summary["risk"] = mk.get("risk", 0)
+    if mk.get("flags"):
+        summary["flags"] = [f["code"] for f in mk["flags"]]
 
     if with_forecast:
         s = item_stats(c, key, cfg, now_ms)

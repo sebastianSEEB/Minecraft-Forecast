@@ -27,6 +27,8 @@ final class SkyPriceConfig {
 	int liveBazaarRefreshSeconds = 60;
 
 	boolean showVerdict = true;      // "GOOD BUY / FAIR PRICE / OVERPRICED" line under the average
+	boolean showFlipBanner = true;   // bold "PROFIT FLIP / WORTH BIDDING" line right under the item name
+	double minFlipProfitPercent = 5; // profit after AH fees needed before an item is marked as a flip
 	boolean showHistory = true;      // 7d / 30d / all-time lines
 	boolean showForecast = true;
 	boolean showSeasons = true;

@@ -48,7 +48,7 @@ async function load() {
   SUM = await r.json();
   ITEMS = SUM.items;
   ITEMS.forEach(i => { i.name = pretty(i.k); i.act = i.kind === "bz" ? (i.vol || 0) : (i.sales || 0); BYKEY[i.k] = i; });
-  renderHeader(); renderKpis(); renderMovers(); renderFcMoves(); renderFlips(); renderTable();
+  renderHeader(); renderKpis(); renderMovers(); renderFcMoves(); renderFlips(); renderAlerts(); renderTable();
   route();
 }
 
@@ -101,9 +101,22 @@ function renderFlips() {
     : emptyLi("No bazaar data yet.");
 }
 
+const FLAG_NAMES = { wash: "wash trading", cornering: "supply cornered", spike: "price spike", dominant: "one seller dominates",
+  thin: "thin market", thin_book: "thin order book", spread: "huge spread" };
+function riskMark(i) {
+  if (!i.risk) return "";
+  const t = (i.flags || []).map(f => FLAG_NAMES[f] || f).join(", ");
+  return `<span class="risk${i.risk}" title="${esc(t)}">${i.risk >= 2 ? "⚠" : "•"}</span>`;
+}
+function renderAlerts() {
+  const rows = ITEMS.filter(i => i.risk >= 2).sort((a, b) => b.act - a.act).slice(0, 10);
+  $("#alerts").innerHTML = rows.length ? rows.map(i => li(i, `<span class="risk2">${esc((i.flags || []).filter(f => f !== "thin").map(f => FLAG_NAMES[f] || f).join(", "))}</span>`)).join("")
+    : emptyLi("No high-risk items right now.");
+}
+
 /* ----------------------------------------------------------------------------- table */
 const COLS = [
-  ["name", "Item", i => `${esc(i.name)}<span class="tag">${kindLabel(i.kind)}</span>`],
+  ["name", "Item", i => `${esc(i.name)}<span class="tag">${kindLabel(i.kind)}</span>${riskMark(i)}`],
   ["now", "Price now", i => fmt(i.now)],
   ["avg", "24h avg", i => fmt(i.avg)],
   ["hi", "24h high", i => fmt(i.hi)],
@@ -156,6 +169,20 @@ function historyTiles(d) {
     [bz ? "Basis" : "Basis", bz ? "buy price" : (a7 && (d.stats["7d"] || {}).sold ? "sale prices" : "lowest BIN")],
   ];
   return `<div class="grid stats" style="margin-top:8px">${tiles.map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v num">${v}</div></div>`).join("")}</div>`;
+}
+function marketCheck(d) {
+  const m = d && d.market;
+  if (!m || m.fair == null) return "";
+  const bz = d.kind === "bz", L = m.listed || {};
+  const row1 = bz
+    ? `<span>Fair value (7-day avg) <b>${fmt(m.fair)}</b></span><span>30-day avg <b>${fmt(m.avg_30d)}</b></span>`
+    : `<span>Fair value <b>${fmt(m.fair)}</b></span><span>Sold median 72h <b>${fmt(m.sold_median_72h)}</b> <span class="muted">(${m.clean_sales}/${m.sales_72h} clean sales)</span></span>
+       <span>Cheapest 25% listed <b>${fmt(L.p25)}</b></span><span>7-day avg <b>${fmt(m.avg_7d)}</b></span><span>Realistic resale <b>${fmt(m.resale)}</b></span>`;
+  const row2 = bz || !m.listed ? "" : `<div class="row" style="margin-top:6px"><span>Listed <b>${L.count}</b> by <b>${L.sellers}</b> sellers</span><span>Lowest <b>${fmt(L.lowest)}</b></span>
+       <span>2nd <b>${fmt(L.second)}</b></span><span>Median listed <b>${fmt(L.median)}</b></span><span>Top seller share <b>${L.top_share != null ? Math.round(L.top_share * 100) + "%" : "–"}</b></span></div>`;
+  const flags = (m.flags || []).length ? `<ul>${m.flags.map(f => `<li class="l${f.level}">${f.level >= 2 ? "⚠ " : ""}${esc(f.text)}</li>`).join("")}</ul>`
+    : '<div class="small" style="margin-top:6px;color:var(--good)">✔ No signs of manipulation</div>';
+  return `<div class="mcheck"><div class="small muted" style="margin-bottom:6px">Market check</div><div class="row">${row1}</div>${row2}${flags}</div>`;
 }
 function seasonChips(d) {
   const conf = (d && d.seasons || []).filter(x => x.confirmed);
@@ -214,7 +241,7 @@ function renderDetail() {
       <div style="display:flex;gap:8px;align-items:center">${sideTabs}<button class="link" id="closeDetail">Close</button></div>
     </div>
     <div class="grid stats">${statTiles.map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v num">${v}</div></div>`).join("")}</div>
-    ${historyTiles(d)}${seasonChips(d)}
+    ${historyTiles(d)}${marketCheck(d)}${seasonChips(d)}
     ${d ? `
       <div class="toolbar" style="margin:14px 0 0"><div class="tabs" id="rangeTabs"><button data-v="7d" class="${state.range === "7d" ? "on" : ""}">7 days · hourly + forecast</button><button data-v="all" class="${state.range === "all" ? "on" : ""}">All history · daily</button></div></div>
       <div class="legend">${legend.map(([c, l]) => `<span><span class="sw" style="background:${c}"></span>${l}</span>`).join("")}
