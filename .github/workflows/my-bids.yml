@@ -6,6 +6,9 @@ on:
       player:
         description: "Minecraft name"
         default: "SpookyHawk"
+      track:
+        description: "Earlier auction ids to follow up (b:<id>,s:<id>,...)"
+        default: ""
 
 jobs:
   scan:
@@ -16,6 +19,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Scan active auctions for your bids and listings
-        run: python tools/my_bids.py "${{ inputs.player }}" | tee result.txt
+        run: python tools/my_bids.py "${{ inputs.player }}" "${{ inputs.track }}" | tee result.txt
       - name: Summary
         run: grep -v '^JSON:' result.txt >> $GITHUB_STEP_SUMMARY

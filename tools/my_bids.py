@@ -29,15 +29,22 @@ def left(ms):
     return "ended" if s <= 0 else f"{int(s // 3600)}h {int(s % 3600 // 60)}m" if s >= 3600 else f"{int(s // 60)}m {int(s % 60)}s"
 
 
-def main(name):
+def main(name, track=""):
+    """track: comma list of 'b:<auction id>' (your earlier bids) / 's:<auction id>' (your earlier listings)."""
+    tracked = {}
+    for t in filter(None, track.split(",")):
+        role, _, aid = t.partition(":")
+        tracked[aid.strip()] = role
     api = HypixelClient("https://api.hypixel.net/v2", "skyblock-market my-bids")
     uuid = api.uuid_of(name)
     first = api.auctions_page(0)
     pages = int(first.get("totalPages") or 1)
-    bidding, selling = [], []
+    bidding, selling, seen = [], [], {}
     for p in range(pages):
         data = first if p == 0 else api.auctions_page(p)
         for a in data.get("auctions", []):
+            if a.get("uuid") in tracked:
+                seen[a["uuid"]] = a
             mine = [b for b in a.get("bids", []) if b.get("bidder") == uuid]
             if mine:
                 top = max(a["bids"], key=lambda b: b["amount"])
@@ -65,6 +72,29 @@ def main(name):
         for s in sorted(selling, key=lambda x: x["end"]):
             out.append(f"| {s['item']} | {'BIN' if s['bin'] else 'Auction'} | {fmt(s['top_bid'] or s['price'])} | {s['bids']} | {left(s['end'])} |")
     out += ["", f"### Ended in the last ~60 s: {len(recent)}"] + [f"- {r['role']} for {fmt(r['price'])}" for r in recent]
+    if tracked:
+        now = time.time() * 1000
+        out += ["", "### Earlier auctions: what happened"]
+        for aid, role in tracked.items():
+            a = seen.get(aid)
+            if role == "s":
+                if a is None:
+                    out.append(f"- listing `{aid[:8]}`: **gone from the AH** (sold and claimed, or cancelled)")
+                elif a.get("bids"):
+                    out.append(f"- {a.get('item_name')}: **SOLD** for {fmt(a.get('highest_bid_amount') or max(b['amount'] for b in a['bids']))}"
+                               f" (coins waiting to be claimed)")
+                else:
+                    out.append(f"- {a.get('item_name')}: still for sale at {fmt(a.get('starting_bid'))}, {left(a.get('end'))} left")
+            else:
+                if a is None:
+                    out.append(f"- bid auction `{aid[:8]}`: **ended and already claimed** (winner not visible in public data)")
+                else:
+                    top = max(a.get("bids") or [{"amount": 0, "bidder": None}], key=lambda b: b["amount"])
+                    ended_ = (a.get("end") or 0) <= now
+                    status = ("**WON**" if top.get("bidder") == uuid else "**LOST**") if ended_ else \
+                             ("winning" if top.get("bidder") == uuid else "outbid")
+                    out.append(f"- {a.get('item_name')}: {status}, top bid {fmt(top['amount'])}"
+                               + ("" if ended_ else f", {left(a.get('end'))} left"))
     text = "\n".join(out)
     print(text)
     print("JSON:" + json.dumps({"bidding": bidding, "selling": selling, "recent_ended": recent}))
@@ -72,4 +102,4 @@ def main(name):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "SpookyHawk")
+    main(sys.argv[1] if len(sys.argv) > 1 else "SpookyHawk", sys.argv[2] if len(sys.argv) > 2 else "")
