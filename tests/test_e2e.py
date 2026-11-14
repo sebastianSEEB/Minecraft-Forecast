@@ -23,9 +23,17 @@ db = Database(cfg.db_path)
 now_h = int(time.time() * 1000) // HOUR_MS
 c = db.connect()
 rows, touched = [], set()
-for h in range(now_h - 240, now_h):
+from market.seasonality import phase_of
+walk = 3.1
+for h in range(now_h - 24 * 30, now_h):
+    walk *= math.exp(random.gauss(0, 0.01))
     for pid, base in fake.BAZAAR.items():
-        p = fake._price(base, h * 3600) * (1 + 0.0004 * (h - now_h))   # gentle uptrend + daily wave
+        if pid == "ENCHANTED_COAL":            # pure random walk: must NOT be flagged as seasonal
+            p = walk
+        else:
+            p = fake._price(base, h * 3600) * (1 + 0.0004 * (h - now_h))   # gentle uptrend + daily wave
+        if pid == "BOOSTER_COOKIE":            # + a SkyBlock-year cycle (peaks ~Early Summer)
+            p *= 1 + 0.06 * math.sin(2 * math.pi * phase_of(h, "skyblock_year") / 124)
         rows.append((f"bz:{pid}:buy", h, p, p, p * 1.01, p * 0.99, 60, None))
         rows.append((f"bz:{pid}:sell", h, p * .97, p * .97, p * .98, p * .96, 60, None))
     for extra, base, cnt in fake.AH:
@@ -50,6 +58,21 @@ def get(path):
 
 h = get("/health")
 print("HEALTH", json.dumps(h, indent=1)[:900])
+from market.publish import export_site
+st = export_site(cfg, db)
+print("EXPORT", st)
+seas = json.load(open(f"{tmp}/site/data/seasonality.json"))
+found = {(r["k"], r["cycle"]) for r in seas["rows"]}
+print("SEASONS", sorted(found))
+assert ("BOOSTER_COOKIE", "skyblock_year") in found, found
+assert ("ENCHANTED_DIAMOND", "daily") in found, found
+assert not any(k == "ENCHANTED_COAL" for k, _ in found), found
+hp = [r["hours_to_peak"] for r in seas["rows"]]
+assert hp == sorted(hp)
+doc = get("/itemdata/BOOSTER_COOKIE")
+assert doc["stats"]["30d"]["buy"]["avg"] and len(doc["daily"]["buy"]) >= 30, doc["stats"]
+doc2 = json.load(open(f"{tmp}/site/data/items/INK_SACK__3.json"))
+assert doc2["k"] == "INK_SACK:3"
 for k in ["ENCHANTED_DIAMOND", "BOOSTER_COOKIE", "HYPERION", "PET_ENDER_DRAGON_LEGENDARY",
           "ENCHANTMENT_ULTIMATE_LEGION_5", "SUMMONING_EYE", "ENCHANTED_BOOK", "NOT_A_REAL_ITEM"]:
     r = get(f"/hud/{k}")

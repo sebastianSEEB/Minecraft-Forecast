@@ -1,6 +1,7 @@
 """Local HTTP server (127.0.0.1 only) that the Minecraft mod and your browser read from.
 
-  GET /hud/<KEY>        lines for the in-game tooltip
+  GET /itemdata/<KEY>   full item document (same format as data/items/<KEY>.json) — used by the mod
+  GET /hud/<KEY>        tooltip lines (used by the lookup page)
   GET /item/<KEY>       full stats + forecast JSON
   GET /history/<SERIES>?hours=168   hourly bars (series: bz:<ID>:buy, ah:<KEY>, lbin:<KEY>)
   GET /search?q=hyper   matching item keys
@@ -20,6 +21,7 @@ from .collector import STATUS
 from .config import Config
 from .db import HOUR_MS, Database
 from .hud import hud_lines
+from .detail import item_detail
 from .stats import item_stats, search
 
 _CACHE: dict[str, tuple[float, dict]] = {}
@@ -93,6 +95,17 @@ def make_handler(cfg: Config, db: Database):
                 if parts[0] == "hud" and len(parts) == 2:
                     s = cached_stats(parts[1].upper())
                     return self._send(200, {"key": s["key"], "kind": s["kind"], "lines": hud_lines(s)})
+                if parts[0] == "itemdata" and len(parts) == 2:
+                    key = parts[1].upper().replace("__", ":")
+                    with _CACHE_LOCK:
+                        hit = _CACHE.get("doc:" + key)
+                    if hit and time.time() - hit[0] < CACHE_SECONDS:
+                        doc = hit[1]
+                    else:
+                        doc = item_detail(conn(), key, cfg)
+                        with _CACHE_LOCK:
+                            _CACHE["doc:" + key] = (time.time(), doc)
+                    return self._send(200 if doc else 404, doc or {"error": "unknown item"})
                 if parts[0] == "item" and len(parts) == 2:
                     return self._send(200, cached_stats(parts[1].upper()))
                 if parts[0] == "history" and len(parts) == 2:

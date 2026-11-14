@@ -13,6 +13,8 @@
   --good: #0ca30c;
   --critical: #e66767;
   --accent: #eda100;
+  --div-pos: #3987e5;
+  --div-neg: #e66767;
 }
 @media (prefers-color-scheme: light) {
   :root {
@@ -30,6 +32,8 @@
     --good: #006300;
     --critical: #c22f2f;
     --accent: #a66f00;
+    --div-pos: #2a78d6;
+    --div-neg: #e34948;
   }
 }
 * { box-sizing: border-box; }
@@ -45,6 +49,14 @@ h1 span { color: var(--accent); }
 .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--good); display: inline-block; }
 .pill.stale i { background: var(--critical); }
 h2 { font-size: 15px; margin: 0 0 12px; }
+.nav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.nav a { padding: 8px 14px; color: var(--text-secondary); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+.nav a.on { color: var(--text-primary); border-bottom-color: var(--accent); }
+.cov { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-secondary); }
+.cov b { color: var(--text-primary); font-size: 14px; }
+.bar { height: 4px; background: var(--grid); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--series-1); }
+.soon { color: var(--accent); font-weight: 600; }
 .muted { color: var(--text-muted); }
 .small { font-size: 12px; }
 .num { font-variant-numeric: tabular-nums; }

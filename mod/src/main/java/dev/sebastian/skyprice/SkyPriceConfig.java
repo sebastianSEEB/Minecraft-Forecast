@@ -13,10 +13,22 @@ import net.fabricmc.loader.api.FabricLoader;
 /** .minecraft/config/skyprice.json — created with defaults on first launch. */
 final class SkyPriceConfig {
 	boolean enabled = true;
-	String host = "127.0.0.1";
-	int port = 8765;
-	int refreshSeconds = 30;
-	boolean showOfflineHint = true;
+
+	/** Your PC collector (run.py). Used first when it is running: freshest data. */
+	String localServer = "http://127.0.0.1:8765";
+	/** Published history + forecasts (GitHub Pages). Used when the PC collector isn't reachable. */
+	String dataUrl = "https://sebastianseeb.github.io/Minecraft-Forecast/data";
+	/** Live bazaar prices straight from the public Hypixel API (no key needed). */
+	boolean useHypixelApi = true;
+	String hypixelBazaarUrl = "https://api.hypixel.net/v2/skyblock/bazaar";
+
+	int localRefreshSeconds = 30;
+	int publishedRefreshSeconds = 600;
+	int liveBazaarRefreshSeconds = 60;
+
+	boolean showHistory = true;      // 7d / 30d / all-time lines
+	boolean showForecast = true;
+	boolean showSeasons = true;
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 

@@ -26,8 +26,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Unit tests (forecast formulas)
-        run: python tests/test_forecast.py
+      - name: Unit tests (forecast formulas, seasonality)
+        run: |
+          python tests/test_forecast.py
+          python tests/test_seasonality.py
       - name: Collect from live Hypixel API
         run: |
           cat > config.json <<'JSON'

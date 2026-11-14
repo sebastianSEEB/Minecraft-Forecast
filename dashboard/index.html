@@ -15,7 +15,9 @@
     </div>
     <div class="pill" id="fresh"><i></i><span>loading…</span></div>
   </header>
+  <nav class="nav" id="nav"><a href="#" data-v="overview" class="on">Overview</a><a href="#season" data-v="season">Seasonality</a></nav>
 
+  <div id="viewOverview">
   <section class="grid kpis" id="kpis"></section>
 
   <section class="grid three">
@@ -56,6 +58,33 @@
     </div>
     <div class="more"><button class="link" id="moreBtn">Show more</button></div>
   </section>
+  </div>
+
+  <div id="viewSeason" style="display:none">
+    <section class="card" style="margin-bottom:14px">
+      <h2>Seasonality: repeating price cycles</h2>
+      <div class="sub small" style="max-width:900px">
+        Every item is tested for three cycles: <b>daily</b> (24 h, player activity), <b>SkyBlock year</b> (124 h, in-game calendar events)
+        and <b>weekly</b> (168 h). Seasonal indices use the course's seasonal-index procedure (price ÷ centred moving average, averaged per position in the cycle).
+        A cycle only counts as <b>confirmed</b> if it repeats consistently (even vs odd cycles correlate ≥ 0.75), predicts the newest cycle
+        out-of-sample (≥ 20% lower error) and swings at least 2%. The list is sorted so the peaks that come <b>soonest</b> are at the top.
+      </div>
+      <div id="seasonCoverage" class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:12px"></div>
+    </section>
+    <section class="card" id="seasonDetail" style="display:none;margin-bottom:14px"></section>
+    <section class="card">
+      <div class="toolbar">
+        <input type="search" id="sq" placeholder="Search items…">
+        <div class="tabs" id="cycleTabs"><button data-v="all" class="on">All cycles</button><button data-v="daily">Daily</button><button data-v="skyblock_year">SkyBlock year</button><button data-v="weekly">Weekly</button></div>
+        <div class="tabs" id="seasonSort"><button data-v="peak" class="on">Next peak first</button><button data-v="dip">Next dip first</button><button data-v="amp">Strongest</button></div>
+        <span class="muted small" id="scount"></span>
+      </div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th style="cursor:default">Item</th><th style="cursor:default">Cycle</th><th style="cursor:default">Next peak</th><th style="cursor:default">Rise to peak</th>
+          <th style="cursor:default">Next dip</th><th style="cursor:default">Drop to dip</th><th style="cursor:default">Swing</th><th style="cursor:default">Confidence</th><th style="cursor:default">Price now</th></tr></thead>
+        <tbody id="stbody"></tbody></table></div>
+    </section>
+  </div>
 
   <footer>
     Data: Hypixel public API (bazaar every minute, every finished auction, full AH scan every 5 min), collected by a personal

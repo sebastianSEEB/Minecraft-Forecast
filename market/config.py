@@ -34,12 +34,13 @@ class Config:
     min_hours_for_forecast: int = 12
     range_level: float = 0.80          # two-sided range shown in-game (80 % by default)
     tracking_signal_limit: float = 4.0 # |TS| above this flags the model as biased
+    season_lookback_hours: int = 24 * 42   # history used to detect daily / SkyBlock-year / weekly cycles
 
     # Dashboard (static website, see market/publish.py)
     publish_interval: int = 3600       # rebuild the dashboard every hour (0 = never)
     publish_repo: str = ""             # e.g. "https://github.com/sebastianSEEB/skyblock-market.git" -> GitHub Pages
-    publish_top_bazaar: int = 250      # products that get full charts + forecasts on the dashboard
-    publish_top_auction: int = 250
+    publish_top_bazaar: int = 600      # most active products that get forecasts (all items get history + seasonality)
+    publish_top_auction: int = 600
     publish_git_name: str = "skyblock-market collector"
     publish_git_email: str = "collector@localhost"
     publish_label: str = "home PC collector"

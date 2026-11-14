@@ -29,6 +29,16 @@ Bazaar items show buy/sell average, high and low, plus approximate daily volume.
    **Fabric API** (and any other SkyBlock mods you like).
 3. Playing on 26.1.2 instead? Use the `+mc26.1.2` jar (needs Java 25).
 
+**Where the mod gets its numbers** (no setup needed, works even when your PC is off):
+1. your PC collector (`run.py`) if it's running: freshest data, updates every 30 s
+2. otherwise the published data on GitHub Pages: full price history, 7d / 30d / all-time stats,
+   forecasts and seasonality for every item (updated hourly by the collector)
+3. live bazaar buy/sell prices straight from the public Hypixel API (refreshed every minute)
+
+In-game you get the tooltip lines plus **`/skyprice`** (held item) or **`/skyprice <item>`** (e.g. `/skyprice hyperion`),
+which prints the full summary, the last 14 daily prices and every tested seasonal cycle in chat.
+Settings: `.minecraft/config/skyprice.json` (sources, refresh times, which lines to show).
+
 The jars are compiled by GitHub Actions (`.github/workflows/build-mod.yml`) on every change in `mod/`.
 To build one yourself, run `cd mod` then `gradlew.bat build` (needs a Java 25 JDK to run the build tool; the 1.21.11 jar still runs on Java 21). See `mod/versions/README.txt` for 26.x.
 
@@ -94,14 +104,30 @@ Static site (`dashboard/` + JSON exported by `market/publish.py`) on the `gh-pag
 
 The `gh-pages` branch is always a single commit that gets replaced, so the repo doesn't grow.
 
+## Seasonality (dashboard → Seasonality tab)
+Every item is tested for three repeating cycles: **daily** (24 h), **SkyBlock year** (124 h, the in-game calendar
+with Spooky Festival, Jerry's Workshop and so on) and **weekly** (168 h). It uses the course's seasonal-index procedure:
+price ÷ centred moving average, averaged per position in the cycle. A strong daily cycle is divided out before
+the longer cycles are tested. A cycle is **confirmed** only if:
+* even and odd cycles give the same pattern (r ≥ 0.75)
+* indices learned on older data cut the error on the newest cycle by ≥ 20% (out-of-sample)
+* the swing is at least 2%
+* there are at least 5 cycles of data (5 days / 26 days / 35 days)
+
+In simulation (`tests/test_seasonality.py`) fewer than 0.5% of random-walk prices get falsely confirmed, while real
+4–5% cycles are found more than 90% of the time. The tab is sorted so the **soonest upcoming peaks are at the top**,
+showing time to the next peak and dip, the expected % move, swing and confidence. Click a row to see the full seasonal
+profile.
+
 ## Local server endpoints
-`/hud/<KEY>` tooltip lines · `/item/<KEY>` full JSON (incl. every horizon's model leaderboard) ·
+`/itemdata/<KEY>` item document (what the mod reads) · `/hud/<KEY>` tooltip lines · `/item/<KEY>` stats JSON (incl. every horizon's model leaderboard) ·
 `/history/<series>?hours=168` hourly bars (`bz:<ID>:buy`, `bz:<ID>:sell`, `ah:<KEY>`, `lbin:<KEY>`) ·
 `/search?q=` · `/health`
 
 ## Tests
 ```
 python tests/test_forecast.py     # formulas vs. lecture examples
+python tests/test_seasonality.py  # cycle detection, false-positive rate, SkyBlock calendar
 python tests/test_e2e.py          # fake Hypixel API → collector → DB → server → HUD
 python tests/fake_hypixel.py      # run the fake API yourself (set api_base in config.json)
 ```

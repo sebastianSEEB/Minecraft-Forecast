@@ -13,7 +13,8 @@
   "tracking_signal_limit": 4.0,
   "publish_interval": 3600,
   "publish_repo": "https://github.com/sebastianSEEB/Minecraft-Forecast.git",
-  "publish_top_bazaar": 250,
-  "publish_top_auction": 250,
-  "publish_label": "Sebastian's PC collector"
+  "publish_top_bazaar": 600,
+  "publish_top_auction": 600,
+  "publish_label": "Sebastian's PC collector",
+  "season_lookback_hours": 1008
 }

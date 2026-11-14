@@ -133,9 +133,48 @@ function renderTable() {
 }
 
 /* ----------------------------------------------------------------------------- detail */
+const DOCS = {};
+async function loadDoc(k) {
+  if (DOCS[k]) return DOCS[k];
+  try {
+    const r = await fetch(`data/items/${encodeURIComponent(safe(k))}.json`, { cache: "no-store" });
+    if (!r.ok) return null;
+    return (DOCS[k] = await r.json());
+  } catch (e) { return null; }
+}
+const when = t => t ? new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
+function historyTiles(d) {
+  if (!d || !d.stats) return "";
+  const bz = d.kind === "bz", side = bz ? "buy" : "sold";
+  const g = w => (d.stats[w] || {})[side] || (!bz && (d.stats[w] || {}).lbin) || null;
+  const a7 = g("7d"), a30 = g("30d"), all = g("all");
+  const tiles = [
+    ["7-day average", fmt(a7 && a7.avg)], ["30-day average", fmt(a30 && a30.avg)],
+    ["All-time high", all ? `${fmt(all.hi)} <span class="muted small">${when(all.hi_at)}</span>` : "–"],
+    ["All-time low", all ? `${fmt(all.lo)} <span class="muted small">${when(all.lo_at)}</span>` : "–"],
+    ["Tracked since", all ? when(all.since) : "–"],
+    [bz ? "Basis" : "Basis", bz ? "buy price" : (a7 && (d.stats["7d"] || {}).sold ? "sale prices" : "lowest BIN")],
+  ];
+  return `<div class="grid stats" style="margin-top:8px">${tiles.map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v num">${v}</div></div>`).join("")}</div>`;
+}
+function seasonChips(d) {
+  const conf = (d && d.seasons || []).filter(x => x.confirmed);
+  if (!conf.length) return d && d.seasons && d.seasons.length ? '<div class="muted small" style="margin-top:10px">No confirmed seasonal cycle.</div>' : "";
+  return `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">${conf.map(x => {
+    const p = nextAt(x.peak_at, x.period);
+    return `<a class="pill" href="#season&item=${encodeURIComponent(d.k)}&cycle=${x.cycle}" style="text-decoration:none">
+      <i style="background:var(--accent)"></i>${x.label} cycle · next peak ${inHours(p)} (${pctTxt(x.rise_to_peak)}) · swing ${(x.amplitude * 100).toFixed(1)}%</a>`;
+  }).join("")}</div>`;
+}
 let CURRENT = null;
 function route() {
-  const m = location.hash.match(/item=([^&]+)/);
+  const h = location.hash;
+  const season = h.startsWith("#season");
+  $("#viewOverview").style.display = season ? "none" : "";
+  $("#viewSeason").style.display = season ? "" : "none";
+  [...$("#nav").children].forEach(a => a.classList.toggle("on", a.dataset.v === (season ? "season" : "overview")));
+  const m = h.match(/item=([^&]+)/), cy = h.match(/cycle=([^&]+)/);
+  if (season) { showSeasons().then(() => m && openSeason(decodeURIComponent(m[1]), cy && cy[1])); return; }
   if (m) openItem(decodeURIComponent(m[1]), false);
 }
 async function openItem(k, push = true) {
@@ -144,12 +183,10 @@ async function openItem(k, push = true) {
   box.classList.add("open");
   if (!s) { box.innerHTML = `<div class="empty">Unknown item ${esc(k)}</div>`; return; }
   CURRENT = null;
-  let d = null;
-  if (s.d) {
-    box.innerHTML = `<div class="empty">Loading ${esc(s.name)}…</div>`;
-    try { d = await (await fetch(`data/items/${encodeURIComponent(safe(k))}.json`, { cache: "no-store" })).json(); } catch (e) { d = null; }
-  }
+  box.innerHTML = `<div class="empty">Loading ${esc(s.name)}…</div>`;
+  const d = await loadDoc(k);
   CURRENT = { s, d };
+  state.range = "7d";
   state.fcSide = s.kind === "bz" ? "buy" : "main";
   renderDetail();
   box.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -164,10 +201,11 @@ function renderDetail() {
     ["Lowest BIN", fmt(s.lbin)], ["24h avg sale", fmt(s.avg)], ["24h high / low", `${fmt(s.hi)} / ${fmt(s.lo)}`],
     ["Sales 24h", (s.sales || 0).toLocaleString()], ["Listed now", s.listed != null ? s.listed.toLocaleString() : "–"], ["Coins traded 24h", fmt(s.coins)],
   ];
+  const per = state.range === "all" ? "daily" : "hourly";
   const legend = bz
-    ? [["var(--series-1)", "Buy price (hourly avg)"], ["var(--series-2)", "Sell price (hourly avg)"]]
-    : [["var(--series-1)", "Median sale price (hourly)"], ["var(--series-2)", "Lowest BIN (hourly avg)"]];
-  const fc = d && d.forecast[state.fcSide];
+    ? [["var(--series-1)", `Buy price (${per} avg)`], ["var(--series-2)", `Sell price (${per} avg)`]]
+    : [["var(--series-1)", `Median sale price (${per})`], ["var(--series-2)", `Lowest BIN (${per} avg)`]];
+  const fc = d && d.forecast && d.forecast[state.fcSide];
   const sideTabs = bz ? `<div class="tabs" id="sideTabs"><button data-v="buy" class="${state.fcSide === "buy" ? "on" : ""}">Forecast buy</button><button data-v="sell" class="${state.fcSide === "sell" ? "on" : ""}">Forecast sell</button></div>` : "";
 
   $("#detail").innerHTML = `
@@ -176,9 +214,11 @@ function renderDetail() {
       <div style="display:flex;gap:8px;align-items:center">${sideTabs}<button class="link" id="closeDetail">Close</button></div>
     </div>
     <div class="grid stats">${statTiles.map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v num">${v}</div></div>`).join("")}</div>
+    ${historyTiles(d)}${seasonChips(d)}
     ${d ? `
+      <div class="toolbar" style="margin:14px 0 0"><div class="tabs" id="rangeTabs"><button data-v="7d" class="${state.range === "7d" ? "on" : ""}">7 days · hourly + forecast</button><button data-v="all" class="${state.range === "all" ? "on" : ""}">All history · daily</button></div></div>
       <div class="legend">${legend.map(([c, l]) => `<span><span class="sw" style="background:${c}"></span>${l}</span>`).join("")}
-        ${fc && fc.available ? '<span><span class="sw dash"></span>Forecast</span><span><span class="sw band"></span>80% range</span>' : ""}</div>
+        ${fc && fc.available && state.range !== "all" ? '<span><span class="sw dash"></span>Forecast</span><span><span class="sw band"></span>80% range</span>' : ""}</div>
       <div class="chart" id="chart"><div class="tip" id="tip"></div></div>
       ${forecastCards(fc)}
       <details class="how"><summary>How the forecast is made</summary>
@@ -187,16 +227,18 @@ function renderDetail() {
         and the model with the lowest <b>MAD</b> (mean absolute deviation) wins. An hour-of-day seasonal index (the four-step seasonal procedure) is applied when it
         lowers MAD. The 80% range is forecast ± 1.28 · σ, with σ ≈ 1.25 · MAD. <b>MAPE</b> = average % error; <b>MFE</b> &gt; 0 means the model
         under-forecasts; |<b>tracking signal</b>| &gt; 4 flags a biased model.</p></details>`
-      : `<div class="empty">Full chart and forecast are published for the ${SUM.stats.detailed} most active items. This one isn't in that set right now.</div>`}`;
+      : `<div class="empty">No published history for this item yet.</div>`}`;
 
   $("#closeDetail").onclick = () => { $("#detail").classList.remove("open"); history.replaceState(null, "", location.pathname); };
+  const rt = $("#rangeTabs");
+  if (rt) rt.onclick = e => { if (e.target.dataset.v) { state.range = e.target.dataset.v; renderDetail(); } };
   const st = $("#sideTabs");
   if (st) st.onclick = e => { if (e.target.dataset.v) { state.fcSide = e.target.dataset.v; renderDetail(); } };
   if (d) drawChart();
 }
 
 function forecastCards(fc) {
-  if (!fc) return "";
+  if (!fc) return '<div class="muted small" style="margin-top:12px">Forecasts are computed for the most active items only.</div>';
   if (!fc.available) return `<div class="empty">Forecast available after ${fc.needs_hours} h of data (have ${fc.hours_of_data} h).</div>`;
   const cards = ["1", "6", "24"].filter(h => fc.h[h]).map(h => {
     const x = fc.h[h], ch = fc.last ? (x.f / fc.last - 1) * 100 : null;
@@ -221,7 +263,17 @@ function niceTicks(lo, hi, n = 5) {
 }
 
 function drawChart() {
-  const { s, d } = CURRENT, bz = s.kind === "bz";
+  const { s } = CURRENT, bz = s.kind === "bz";
+  let d = CURRENT.d;
+  if (state.range === "all" && d.daily && d.daily.start) {
+    const dl = d.daily;
+    const series = bz ? { buy: dl.buy, sell: dl.sell } : { median: dl.median, lbin: [], sales: dl.sales };
+    if (!bz && dl.lbin_start) {     // align lowest-BIN daily series to the sales start
+      const off = Math.round((dl.lbin_start - dl.start) / 86400e3);
+      series.lbin = dl.median.map((_, i) => dl.lbin[i - off] ?? null);
+    }
+    d = { ...d, start: dl.start, step: 86400e3, series, forecast: {} };
+  }
   const box = $("#chart"), W = Math.max(320, box.clientWidth), H = W < 600 ? 240 : 300;
   const P = { l: 56, r: 16, t: 12, b: 26 };
   const n = d.series[bz ? "buy" : "median"].length;
@@ -229,7 +281,7 @@ function drawChart() {
   const keys = bz ? ["buy", "sell"] : ["median", "lbin"];
   const names = bz ? ["Buy", "Sell"] : ["Median sale", "Lowest BIN"];
   const colors = ["var(--series-1)", "var(--series-2)"];
-  const fc = d.forecast[state.fcSide];
+  const fc = (d.forecast || {})[state.fcSide];
   const last = (() => { const a = d.series[keys[state.fcSide === "sell" ? 1 : 0]]; for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return i; return -1; })();
   const fpts = fc && fc.available && last >= 0 ? ["1", "6", "24"].filter(h => fc.h[h]).map(h => ({ t: ts(last) + h * 3600e3, ...fc.h[h], h })) : [];
   const fColor = colors[state.fcSide === "sell" ? 1 : 0];
@@ -247,7 +299,8 @@ function drawChart() {
   yt.forEach(v => { svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${P.l - 8}" y="${Y(v) + 4}" text-anchor="end">${fmt(v)}</text>`; });
   // day ticks at local midnight
   const dd = new Date(t0); dd.setHours(24, 0, 0, 0);
-  for (let t = dd.getTime(); t <= t1; t += 86400e3) {
+  const tickStep = 86400e3 * Math.max(1, Math.ceil((t1 - t0) / 86400e3 / 10));
+  for (let t = dd.getTime(); t <= t1; t += tickStep) {
     svg += `<line x1="${X(t)}" x2="${X(t)}" y1="${P.t}" y2="${H - P.b}" stroke="var(--grid)" stroke-dasharray="2 4"/>`;
     svg += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle">${new Date(t).toLocaleDateString(undefined, { weekday: "short", day: "numeric" })}</text>`;
   }
@@ -293,13 +346,13 @@ function drawChart() {
     } else {
       const i = Math.max(0, Math.min(n - 1, Math.round((t - t0) / d.step)));
       x = X(ts(i));
-      html = `<div class="small muted">${new Date(ts(i)).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>`;
+      html = `<div class="small muted">${d.step >= 86400e3 ? new Date(ts(i)).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) + " (daily avg)" : new Date(ts(i)).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>`;
       keys.forEach((k, si) => {
         const v = d.series[k][i], c = $("#h" + si, box);
         c.style.display = v == null ? "none" : ""; if (v != null) { c.setAttribute("cx", x); c.setAttribute("cy", Y(v)); }
         html += `<div class="row"><span class="k"><span class="dot" style="background:${colors[si]}"></span>${names[si]}</span><b class="num">${fmt(v)}</b></div>`;
       });
-      if (!bz) html += `<div class="row"><span class="k">Sales that hour</span><span class="num">${d.series.sales[i] || 0}</span></div>`;
+      if (!bz) html += `<div class="row"><span class="k">Sales that ${d.step >= 86400e3 ? "day" : "hour"}</span><span class="num">${(d.series.sales || [])[i] || 0}</span></div>`;
     }
     $("#hx", box).setAttribute("x1", x); $("#hx", box).setAttribute("x2", x); g.style.display = "";
     tip.innerHTML = html; tip.style.display = "block";
@@ -307,6 +360,125 @@ function drawChart() {
     tip.style.left = left + "px"; tip.style.top = "10px";
   });
   hit.addEventListener("mouseleave", () => { g.style.display = "none"; tip.style.display = "none"; });
+}
+
+/* ----------------------------------------------------------------------------- seasonality */
+let SEAS = null;
+const sstate = { cycle: "all", sort: "peak", q: "" };
+function nextAt(t, periodH) {               // roll a peak/dip time forward past "now"
+  const P = periodH * 3600e3; let x = t;
+  while (x < Date.now() - 3600e3) x += P;
+  return x;
+}
+function inHours(t) {
+  const h = (t - Date.now()) / 3600e3;
+  if (h < 1) return '<span class="soon">now</span>';
+  if (h < 48) return `in ${Math.round(h)} h`;
+  return `in ${(h / 24).toFixed(1)} d`;
+}
+const pctTxt = v => (v >= 0 ? "+" : "−") + Math.abs(v * 100).toFixed(1) + "%";
+const clock = t => new Date(t).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+async function showSeasons() {
+  if (!SEAS) {
+    try { SEAS = await (await fetch("data/seasonality.json", { cache: "no-store" })).json(); }
+    catch (e) { SEAS = { rows: [], hours_of_data: 0, needs: { daily: 120, skyblock_year: 620, weekly: 840 } }; }
+    SEAS.rows.forEach(r => { r.name = pretty(r.k); });
+  }
+  const have = SEAS.hours_of_data;
+  const cov = [["daily", "Daily cycle"], ["skyblock_year", "SkyBlock-year cycle"], ["weekly", "Weekly cycle"]].map(([c, l]) => {
+    const need = SEAS.needs[c], n = SEAS.rows.filter(r => r.cycle === c).length, f = Math.min(1, have / need);
+    return `<div class="cov"><b>${n}</b> items · ${l}<div>${f >= 1 ? "enough data to test" : `testing starts after ${Math.round(need / 24)} days of data (have ${(have / 24).toFixed(1)})`}</div><div class="bar"><i style="width:${f * 100}%"></i></div></div>`;
+  }).join("");
+  $("#seasonCoverage").innerHTML = cov;
+  renderSeasonTable();
+}
+
+function renderSeasonTable() {
+  const q = sstate.q.trim().toLowerCase();
+  let rows = SEAS.rows.filter(r => (sstate.cycle === "all" || r.cycle === sstate.cycle) &&
+    (!q || r.name.toLowerCase().includes(q) || r.k.toLowerCase().includes(q.replace(/ /g, "_"))));
+  rows.forEach(r => { r._peak = nextAt(r.peak_at, r.period); r._dip = nextAt(r.trough_at, r.period); });
+  rows.sort(sstate.sort === "peak" ? (a, b) => a._peak - b._peak || b.amplitude - a.amplitude
+    : sstate.sort === "dip" ? (a, b) => a._dip - b._dip || b.amplitude - a.amplitude : (a, b) => b.amplitude - a.amplitude);
+  $("#scount").textContent = `${rows.length} confirmed cycles`;
+  $("#stbody").innerHTML = rows.slice(0, 400).map(r => `<tr data-sk="${esc(r.k)}" data-cy="${r.cycle}">
+      <td>${esc(r.name)}<span class="tag">${kindLabel(r.kind)}</span></td><td>${r.label}</td>
+      <td>${inHours(r._peak)} <span class="muted small">${clock(r._peak)}${r.peak_sb_date ? " · " + r.peak_sb_date : ""}</span></td>
+      <td class="num">${pct(r.rise_to_peak * 100)}</td>
+      <td>${inHours(r._dip)} <span class="muted small">${clock(r._dip)}</span></td>
+      <td class="num">${pct(r.fall_to_trough * 100)}</td>
+      <td class="num">${(r.amplitude * 100).toFixed(1)}%</td>
+      <td class="num">r ${r.consistency.toFixed(2)} · ${(r.oos_gain * 100).toFixed(0)}%</td>
+      <td class="num">${fmt(r.now)}</td></tr>`).join("") ||
+    `<tr><td colspan="9" class="empty">No confirmed cycles yet. Daily cycles can be confirmed after 5 days of collected data.</td></tr>`;
+}
+
+function openSeason(k, cycle) {
+  const r = SEAS.rows.find(x => x.k === k && (!cycle || x.cycle === cycle));
+  const box = $("#seasonDetail");
+  if (!r) { box.style.display = "none"; return; }
+  box.style.display = "";
+  const peak = nextAt(r.peak_at, r.period), dip = nextAt(r.trough_at, r.period);
+  box.innerHTML = `<div class="dhead"><div><h2>${esc(pretty(k))} — ${r.label.toLowerCase()} cycle</h2>
+      <div class="muted small">${esc(k)} · based on ${r.basis} · ${r.cycles} cycles of data</div></div>
+      <div style="display:flex;gap:8px"><a class="link" style="padding:6px 14px;border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--text-secondary)" href="#item=${encodeURIComponent(k)}">Price chart</a><button class="link" id="closeSeason">Close</button></div></div>
+    <div class="grid stats">
+      <div class="stat"><div class="l">Next peak</div><div class="v">${inHours(peak)}</div><div class="muted small">${clock(peak)}${r.peak_sb_date ? " · " + r.peak_sb_date : ""}</div></div>
+      <div class="stat"><div class="l">Rise from now to peak</div><div class="v num">${pct(r.rise_to_peak * 100)}</div></div>
+      <div class="stat"><div class="l">Next dip</div><div class="v">${inHours(dip)}</div><div class="muted small">${clock(dip)}${r.trough_sb_date ? " · " + r.trough_sb_date : ""}</div></div>
+      <div class="stat"><div class="l">Drop from now to dip</div><div class="v num">${pct(r.fall_to_trough * 100)}</div></div>
+      <div class="stat"><div class="l">Peak-to-dip swing</div><div class="v num">${(r.amplitude * 100).toFixed(1)}%</div></div>
+      <div class="stat"><div class="l">Confidence</div><div class="v num">r ${r.consistency.toFixed(2)}</div><div class="muted small">${(r.oos_gain * 100).toFixed(0)}% less error out-of-sample</div></div>
+    </div>
+    <div class="legend"><span><span class="sw" style="background:var(--div-pos);height:10px"></span>above its normal price</span><span><span class="sw" style="background:var(--div-neg);height:10px"></span>below its normal price</span><span class="muted">seasonal index − 1, by position in the cycle</span></div>
+    <div class="chart" id="pchart"><div class="tip" id="ptip"></div></div>`;
+  $("#closeSeason").onclick = () => { box.style.display = "none"; history.replaceState(null, "", "#season"); };
+  drawProfile(r);
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function phaseLabel(r, p, short) {
+  const t = r._base + ((p - r.phase_now + r.period) % r.period) * 3600e3;   // next time this phase occurs
+  if (r.cycle === "daily") return new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (r.cycle === "weekly") return new Date(t).toLocaleString(undefined, short ? { weekday: "short" } : { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const secs = p * 3600, months = ["Early Spring", "Spring", "Late Spring", "Early Summer", "Summer", "Late Summer", "Early Autumn", "Autumn", "Late Autumn", "Early Winter", "Winter", "Late Winter"];
+  return short ? months[Math.min(11, Math.floor(secs / 37200))] : `${months[Math.min(11, Math.floor(secs / 37200))]} ${Math.floor((secs % 37200) / 1200) + 1}`;
+}
+
+function drawProfile(r) {
+  const box = $("#pchart"), W = Math.max(320, box.clientWidth), H = 240, P = { l: 48, r: 12, t: 14, b: 30 };
+  if (r._p0 == null) r._p0 = r.phase_now;                 // phase when the snapshot was made
+  const nowPhase = (r._p0 + Math.floor((Date.now() - (r.peak_at - r.hours_to_peak * 3600e3)) / 3600e3)) % r.period;
+  r._base = Math.floor(Date.now() / 3600e3) * 3600e3; r.phase_now = nowPhase;
+  const vals = r.index.map(v => v - 1), m = Math.max(...vals.map(Math.abs)) * 1.15 || 0.01;
+  const bw = (W - P.l - P.r) / r.period, Y = v => P.t + (1 - (v + m) / (2 * m)) * (H - P.t - P.b), y0 = Y(0);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Seasonal profile">`;
+  niceTicks(-m, m, 4).forEach(v => { svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${P.l - 6}" y="${Y(v) + 4}" text-anchor="end">${(v * 100).toFixed(1)}%</text>`; });
+  vals.forEach((v, p) => {
+    const x = P.l + p * bw, y = Math.min(Y(v), y0), h = Math.max(1, Math.abs(Y(v) - y0));
+    svg += `<rect x="${x + Math.min(1, bw * 0.1)}" y="${y}" width="${Math.max(1, bw - Math.min(2, bw * 0.2))}" height="${h}" rx="${bw > 8 ? 2 : 0}" fill="${v >= 0 ? "var(--div-pos)" : "var(--div-neg)"}" opacity="${p === nowPhase ? 1 : 0.8}"/>`;
+  });
+  svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${y0}" y2="${y0}" stroke="var(--text-muted)"/>`;
+  const xn = P.l + (nowPhase + 0.5) * bw;
+  svg += `<line x1="${xn}" x2="${xn}" y1="${P.t}" y2="${H - P.b}" stroke="var(--text-primary)" stroke-dasharray="3 3"/><text x="${xn + 4}" y="${P.t + 8}" style="fill:var(--text-primary)">now</text>`;
+  const step = r.period === 24 ? 3 : r.period === 168 ? 24 : 31;
+  for (let p = 0; p < r.period; p += step) svg += `<text x="${P.l + (p + 0.5) * bw}" y="${H - 10}" text-anchor="middle">${phaseLabel(r, p, true)}</text>`;
+  svg += `<rect id="phit" x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent"/></svg>`;
+  box.querySelectorAll("svg").forEach(e => e.remove());
+  box.insertAdjacentHTML("afterbegin", svg);
+  const tip = $("#ptip"), hit = $("#phit", box);
+  hit.addEventListener("mousemove", e => {
+    const rc = hit.getBoundingClientRect(), p = Math.max(0, Math.min(r.period - 1, Math.floor((e.clientX - rc.left) / rc.width * r.period)));
+    const v = vals[p], hrs = (p - nowPhase + r.period) % r.period;
+    tip.innerHTML = `<div class="small muted">${phaseLabel(r, p, false)}${hrs ? ` · in ${hrs} h` : " · now"}</div>
+      <div class="row"><span class="k">vs normal price</span><b class="num">${(v >= 0 ? "+" : "") + (v * 100).toFixed(2)}%</b></div>
+      <div class="row"><span class="k">vs now</span><span class="num">${pctTxt(r.index[p] / r.index[nowPhase] - 1)}</span></div>`;
+    tip.style.display = "block";
+    const px = (P.l + (p + 0.5) * bw) * box.clientWidth / W;
+    tip.style.left = (px + 14 + tip.offsetWidth > box.clientWidth ? px - tip.offsetWidth - 14 : px + 14) + "px"; tip.style.top = "8px";
+  });
+  hit.addEventListener("mouseleave", () => { tip.style.display = "none"; });
 }
 
 /* ----------------------------------------------------------------------------- events */
@@ -331,5 +503,13 @@ document.addEventListener("click", e => {
   if (el && (el.closest("#tbody") || el.closest(".list"))) openItem(el.dataset.k);
 });
 window.addEventListener("hashchange", route);
-let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => CURRENT && CURRENT.d && drawChart(), 150); });
+tabs("#cycleTabs", "cycle", () => {}); tabs("#seasonSort", "sort", () => {});
+$("#cycleTabs").addEventListener("click", e => { if (e.target.dataset.v) { sstate.cycle = e.target.dataset.v; renderSeasonTable(); } });
+$("#seasonSort").addEventListener("click", e => { if (e.target.dataset.v) { sstate.sort = e.target.dataset.v; renderSeasonTable(); } });
+$("#sq").addEventListener("input", e => { sstate.q = e.target.value; renderSeasonTable(); });
+$("#stbody").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-sk]");
+  if (tr) { history.replaceState(null, "", `#season&item=${encodeURIComponent(tr.dataset.sk)}&cycle=${tr.dataset.cy}`); openSeason(tr.dataset.sk, tr.dataset.cy); }
+});
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (CURRENT && CURRENT.d) drawChart(); }, 150); });
 load();
