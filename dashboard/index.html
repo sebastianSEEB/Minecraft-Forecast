@@ -15,7 +15,7 @@
     </div>
     <div class="pill" id="fresh"><i></i><span>loading…</span></div>
   </header>
-  <nav class="nav" id="nav"><a href="#" data-v="overview" class="on">Overview</a><a href="#season" data-v="season">Seasonality</a></nav>
+  <nav class="nav" id="nav"><a href="#" data-v="overview" class="on">Overview</a><a href="#season" data-v="season">Seasonality</a><a href="#wallet" data-v="wallet">Wallet</a></nav>
 
   <div id="viewOverview">
   <section class="grid kpis" id="kpis"></section>
@@ -69,6 +69,26 @@
     </div>
     <div class="more"><button class="link" id="moreBtn">Show more</button></div>
   </section>
+  </div>
+
+  <div id="viewWallet" style="display:none">
+    <section class="card" style="margin-bottom:14px">
+      <div class="dhead"><div><h2 id="wTitle" style="font-size:18px">Wallet</h2><div class="muted small" id="wSub"></div></div></div>
+      <div class="grid kpis" id="wKpis" style="margin-top:12px"></div>
+      <div class="grid kpis" id="wKpis2"></div>
+    </section>
+    <section class="card" style="margin-bottom:14px">
+      <div class="toolbar" style="justify-content:space-between">
+        <h2 style="margin:0">Coins over time</h2>
+        <div class="tabs" id="wRange"><button data-v="168">7 days</button><button data-v="720" class="on">30 days</button><button data-v="2160">90 days</button></div>
+      </div>
+      <div class="legend" id="wLegend"></div>
+      <div class="chart" id="wChart"><div class="tip" id="wTip"></div></div>
+    </section>
+    <section class="card">
+      <h2>Gain / loss per hour <span class="muted small">last 7 days</span></h2>
+      <div class="chart" id="wBars"><div class="tip" id="wTip2"></div></div>
+    </section>
   </div>
 
   <div id="viewSeason" style="display:none">

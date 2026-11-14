@@ -213,10 +213,12 @@ function seasonChips(d) {
 let CURRENT = null;
 function route() {
   const h = location.hash;
-  const season = h.startsWith("#season");
-  $("#viewOverview").style.display = season ? "none" : "";
+  const season = h.startsWith("#season"), wallet = h.startsWith("#wallet");
+  $("#viewOverview").style.display = season || wallet ? "none" : "";
   $("#viewSeason").style.display = season ? "" : "none";
-  [...$("#nav").children].forEach(a => a.classList.toggle("on", a.dataset.v === (season ? "season" : "overview")));
+  $("#viewWallet").style.display = wallet ? "" : "none";
+  [...$("#nav").children].forEach(a => a.classList.toggle("on", a.dataset.v === (season ? "season" : wallet ? "wallet" : "overview")));
+  if (wallet) { showWallet(); return; }
   const m = h.match(/item=([^&]+)/), cy = h.match(/cycle=([^&]+)/);
   if (season) { showSeasons().then(() => m && openSeason(decodeURIComponent(m[1]), cy && cy[1])); return; }
   if (m) openItem(decodeURIComponent(m[1]), false);
@@ -525,6 +527,95 @@ function drawProfile(r) {
   hit.addEventListener("mouseleave", () => { tip.style.display = "none"; });
 }
 
+/* ----------------------------------------------------------------------------- wallet */
+let WAL = null, wRange = 720;
+async function showWallet() {
+  if (!WAL) {
+    try { const r = await fetch("data/wallet.json", { cache: "no-store" }); WAL = r.ok ? await r.json() : {}; } catch (e) { WAL = {}; }
+  }
+  if (!WAL.series) {
+    $("#wTitle").textContent = "Wallet";
+    $("#wSub").innerHTML = "No coin data yet. Either play with the SkyPrice mod while the PC collector runs (it reads your purse from the sidebar), "
+      + "or put a Hypixel API key in <code>hypixel_api_key.txt</code> next to run.py to track purse + bank every hour.";
+    $("#wKpis").innerHTML = $("#wKpis2").innerHTML = ""; return;
+  }
+  const k = WAL.kpi, n = WAL.now;
+  $("#wTitle").textContent = `${WAL.player || "Wallet"}${WAL.profile ? " · " + WAL.profile : ""}`;
+  $("#wSub").textContent = `Tracked since ${new Date(WAL.since).toLocaleDateString()} · ${WAL.hours_tracked} hourly points · updated ${new Date(WAL.updated).toLocaleString()}`
+    + (WAL.bank_known ? "" : " · bank not visible (add an API key, and enable the Banking API in SkyBlock settings)");
+  const sign = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "down"}">${v >= 0 ? "+" : "−"}${fmt(Math.abs(v))}</span>`;
+  const tile = (l, v, sub = "") => `<div class="card kpi"><div class="l">${l}</div><div class="v num">${v}</div><div class="muted small">${sub}</div></div>`;
+  $("#wKpis").innerHTML = tile("Total coins", fmt(n.total), WAL.bank_known ? `purse ${fmt(n.purse)} · bank ${fmt((n.bank || 0) + (n.personal_bank || 0))}` : `purse ${fmt(n.purse)}`)
+    + tile("Last 24 hours", sign(k.change_24h), k.change_24h != null && n.total ? `${(k.change_24h / (n.total - k.change_24h) * 100).toFixed(1)}%` : "needs 24 h of data")
+    + tile("Last 7 days", sign(k.change_7d), k.change_7d == null ? "needs 7 days of data" : "")
+    + tile("Since tracking started", sign(k.change_all), new Date(WAL.since).toLocaleDateString());
+  $("#wKpis2").innerHTML = tile("All-time high", fmt(k.ath), new Date(k.ath_at).toLocaleDateString())
+    + tile("Average per hour (7d)", k.avg_per_hour_7d == null ? "–" : sign(k.avg_per_hour_7d), k.avg_per_hour_7d == null ? "" : `≈ ${sign(k.avg_per_hour_7d * 24)} per day`)
+    + tile("Best / worst hour", `${sign(k.best_hour)} <span class="muted">/</span> ${sign(k.worst_hour)}`)
+    + tile("Hours with a gain", k.positive_hours_pct == null ? "–" : k.positive_hours_pct.toFixed(0) + "%");
+  drawWallet(); drawWalletBars();
+}
+
+function drawWallet() {
+  const box = $("#wChart"), W = Math.max(320, box.clientWidth), H = 280, P = { l: 56, r: 16, t: 12, b: 26 };
+  const pts = WAL.series.filter(p => p.ts >= Date.now() - wRange * 3600e3);
+  box.querySelectorAll("svg,.empty").forEach(e => e.remove());
+  if (pts.length < 2) { box.insertAdjacentHTML("afterbegin", '<div class="empty">Not enough points yet.</div>'); return; }
+  const keys = WAL.bank_known ? [["total", "Total", "var(--series-1)"], ["purse", "Purse", "var(--series-2)"], ["bank", "Bank", "#1baf7a"]] : [["total", "Purse (total)", "var(--series-1)"]];
+  $("#wLegend").innerHTML = keys.map(([, l, c]) => `<span><span class="sw" style="background:${c}"></span>${l}</span>`).join("");
+  const vals = []; pts.forEach(p => keys.forEach(([k]) => p[k] != null && vals.push(p[k])));
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.08 || hi * 0.05 || 1; lo = Math.max(0, lo - pad); hi += pad;
+  const t0 = pts[0].ts, t1 = pts[pts.length - 1].ts;
+  const X = t => P.l + (t - t0) / (t1 - t0 || 1) * (W - P.l - P.r), Y = v => P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Coins over time">`;
+  niceTicks(lo, hi, 5).forEach(v => { svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${P.l - 8}" y="${Y(v) + 4}" text-anchor="end">${fmt(v)}</text>`; });
+  const dd = new Date(t0); dd.setHours(24, 0, 0, 0); const step = 86400e3 * Math.max(1, Math.ceil((t1 - t0) / 86400e3 / 8));
+  for (let t = dd.getTime(); t <= t1; t += step) svg += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle">${new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</text>`;
+  keys.forEach(([k, , c]) => {
+    let d = "", pen = false, prev = null;
+    pts.forEach(p => { if (p[k] == null || (prev && p.ts - prev > 3 * 3600e3)) pen = false; if (p[k] != null) { d += `${pen ? "L" : "M"}${X(p.ts).toFixed(1)},${Y(p[k]).toFixed(1)}`; pen = true; } prev = p.ts; });
+    svg += `<path d="${d}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`;
+  });
+  svg += `<line id="whx" y1="${P.t}" y2="${H - P.b}" stroke="var(--text-muted)" style="display:none"/><rect id="whit" x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent"/></svg>`;
+  box.insertAdjacentHTML("afterbegin", svg);
+  const hit = $("#whit", box), tip = $("#wTip"), line = $("#whx", box);
+  hit.addEventListener("mousemove", e => {
+    const r = hit.getBoundingClientRect(), t = t0 + (e.clientX - r.left) / r.width * (t1 - t0);
+    const p = pts.reduce((a, b) => Math.abs(b.ts - t) < Math.abs(a.ts - t) ? b : a), x = X(p.ts);
+    line.setAttribute("x1", x); line.setAttribute("x2", x); line.style.display = "";
+    tip.innerHTML = `<div class="small muted">${new Date(p.ts).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>`
+      + keys.map(([k, l, c]) => `<div class="row"><span class="k"><span class="dot" style="background:${c}"></span>${l}</span><b class="num">${fmt(p[k])}</b></div>`).join("");
+    tip.style.display = "block"; const px = x * box.clientWidth / W;
+    tip.style.left = (px + 14 + tip.offsetWidth > box.clientWidth ? px - tip.offsetWidth - 14 : px + 14) + "px"; tip.style.top = "10px";
+  });
+  hit.addEventListener("mouseleave", () => { tip.style.display = "none"; line.style.display = "none"; });
+}
+
+function drawWalletBars() {
+  const box = $("#wBars"), W = Math.max(320, box.clientWidth), H = 200, P = { l: 56, r: 16, t: 10, b: 24 };
+  const s = WAL.series.filter(p => p.ts >= Date.now() - 169 * 3600e3), bars = [];
+  for (let i = 1; i < s.length; i++) if (s[i].ts - s[i - 1].ts === 3600e3) bars.push({ ts: s[i].ts, d: s[i].total - s[i - 1].total });
+  box.querySelectorAll("svg,.empty").forEach(e => e.remove());
+  if (!bars.length) { box.insertAdjacentHTML("afterbegin", '<div class="empty">Needs consecutive hourly points.</div>'); return; }
+  const m = Math.max(...bars.map(b => Math.abs(b.d))) * 1.1 || 1, t0 = Date.now() - 168 * 3600e3, bw = (W - P.l - P.r) / 168;
+  const X = t => P.l + (t - t0) / 3600e3 * bw, Y = v => P.t + (1 - (v + m) / (2 * m)) * (H - P.t - P.b), y0 = Y(0);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Hourly gain or loss">`;
+  niceTicks(-m, m, 4).forEach(v => { svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${P.l - 8}" y="${Y(v) + 4}" text-anchor="end">${fmt(v)}</text>`; });
+  bars.forEach(b => { const x = X(b.ts) - bw, y = Math.min(Y(b.d), y0), h = Math.max(1, Math.abs(Y(b.d) - y0));
+    svg += `<rect x="${x + 0.5}" y="${y}" width="${Math.max(1, bw - 1)}" height="${h}" fill="${b.d >= 0 ? "var(--div-pos)" : "var(--div-neg)"}"/>`; });
+  svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${y0}" y2="${y0}" stroke="var(--text-muted)"/><rect id="bhit" x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent"/></svg>`;
+  box.insertAdjacentHTML("afterbegin", svg);
+  const hit = $("#bhit", box), tip = $("#wTip2");
+  hit.addEventListener("mousemove", e => {
+    const r = hit.getBoundingClientRect(), t = t0 + (e.clientX - r.left) / r.width * 168 * 3600e3;
+    const b = bars.reduce((a, c) => Math.abs(c.ts - t) < Math.abs(a.ts - t) ? c : a);
+    tip.innerHTML = `<div class="small muted">${new Date(b.ts - 3600e3).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })} – ${new Date(b.ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</div><div class="row"><span class="k">Change</span><b class="num ${b.d >= 0 ? "up" : "down"}">${b.d >= 0 ? "+" : "−"}${fmt(Math.abs(b.d))}</b></div>`;
+    tip.style.display = "block"; const px = X(b.ts) * box.clientWidth / W;
+    tip.style.left = (px + 14 + tip.offsetWidth > box.clientWidth ? px - tip.offsetWidth - 14 : px + 14) + "px"; tip.style.top = "8px";
+  });
+  hit.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+}
+
 /* ----------------------------------------------------------------------------- events */
 function tabs(sel, key, after) {
   $(sel).addEventListener("click", e => {
@@ -547,6 +638,8 @@ document.addEventListener("click", e => {
   if (el && (el.closest("#tbody") || el.closest(".list"))) openItem(el.dataset.k);
 });
 window.addEventListener("hashchange", route);
+$("#wRange").addEventListener("click", e => { const v = e.target.dataset.v; if (!v) return; wRange = +v;
+  [...$("#wRange").children].forEach(b => b.classList.toggle("on", b.dataset.v === v)); drawWallet(); });
 tabs("#cycleTabs", "cycle", () => {}); tabs("#seasonSort", "sort", () => {});
 $("#cycleTabs").addEventListener("click", e => { if (e.target.dataset.v) { sstate.cycle = e.target.dataset.v; renderSeasonTable(); } });
 $("#seasonSort").addEventListener("click", e => { if (e.target.dataset.v) { sstate.sort = e.target.dataset.v; renderSeasonTable(); } });
@@ -555,5 +648,5 @@ $("#stbody").addEventListener("click", e => {
   const tr = e.target.closest("tr[data-sk]");
   if (tr) { history.replaceState(null, "", `#season&item=${encodeURIComponent(tr.dataset.sk)}&cycle=${tr.dataset.cy}`); openSeason(tr.dataset.sk, tr.dataset.cy); }
 });
-let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (CURRENT && CURRENT.d) drawChart(); }, 150); });
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (CURRENT && CURRENT.d) drawChart(); if (WAL && WAL.series && location.hash.startsWith("#wallet")) { drawWallet(); drawWalletBars(); } }, 150); });
 load();

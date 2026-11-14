@@ -16,5 +16,8 @@
   "publish_top_bazaar": 600,
   "publish_top_auction": 600,
   "publish_label": "Sebastian's PC collector",
-  "season_lookback_hours": 1008
+  "season_lookback_hours": 1008,
+  "player_name": "SpookyHawk",
+  "wallet_interval": 3600,
+  "publish_wallet": true
 }

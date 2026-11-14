@@ -148,6 +148,23 @@ Normal items use their SkyBlock id (`HYPERION`). Single-enchant books become `EN
 which is the same as the bazaar id. Pets become `PET_<TYPE>_<TIER>`. Reforges, stars, recombs and enchants
 on gear are **not** split out yet, so a 5-star Hyperion and a clean one share one price series.
 
+## Wallet (your coins, hourly)
+Dashboard → **Wallet** tab shows:
+* KPIs: total coins (purse + bank), last 24 h, last 7 days, since tracking started, all-time high, average per hour
+  and per day, best and worst hour, % of hours with a gain
+* charts: coins over time (total, purse and bank; 7 / 30 / 90 days) and gain or loss per hour
+
+Two sources, both optional:
+1. **Hypixel API (purse + bank, every hour, even when you're offline).** Create a permanent key at
+   https://developer.hypixel.net/dashboard → Create App → Personal API Key. Put just the key in a file named
+   `hypixel_api_key.txt` next to `run.py`. That file is in `.gitignore`, so it never gets pushed. The player is set by
+   `player_name` (SpookyHawk) in `config.example.json`. For the bank balance, turn on the Banking API in SkyBlock settings.
+2. **The mod (purse only, no key needed).** While you play, it reads "Purse:" from the sidebar every 5 minutes and sends it
+   to your PC collector. The bank is filled in from the last API reading, if there is one.
+
+The Wallet tab is on the public dashboard. Set `"publish_wallet": false` in config.json to keep it local only
+(http://127.0.0.1:8765/dashboard/ still shows it).
+
 ## Dashboard
 Static site (`dashboard/` + JSON exported by `market/publish.py`) on the `gh-pages` branch. It shows:
 * tracked items, AH sales and coins traded in the last 24h, and how much history has been collected
@@ -186,6 +203,7 @@ python tests/test_seasonality.py  # cycle detection, false-positive rate, SkyBlo
 python tests/test_market.py       # fair value + manipulation scenarios
 python tests/test_quickbin.py     # 30-second lowest-BIN re-check
 python tests/test_deals.py        # underpriced BIN finder
+python tests/test_wallet.py       # wallet parsing, mod + API merge, KPIs
 python tests/test_e2e.py          # fake Hypixel API → collector → DB → server → HUD
 python tests/fake_hypixel.py      # run the fake API yourself (set api_base in config.json)
 ```

@@ -5,3 +5,4 @@ config.json
 mod/build/
 mod/.gradle/
 mod/run/
+hypixel_api_key.txt

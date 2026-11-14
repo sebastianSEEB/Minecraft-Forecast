@@ -26,6 +26,7 @@ from pathlib import Path
 from .config import Config, load_config
 from .db import HOUR_MS, Database
 from .detail import DAY_MS, auction_summaries, bazaar_summary, item_detail, r4
+from .wallet import wallet_report
 
 log = logging.getLogger("publish")
 DASHBOARD_SRC = Path(__file__).resolve().parent.parent / "dashboard"
@@ -103,6 +104,12 @@ def export_site(cfg: Config, db: Database, out_dir: str | Path | None = None, no
     deals = [dict(r) for r in c.execute("SELECT * FROM deals ORDER BY profit DESC LIMIT 200")]
     (out / "data" / "deals.json").write_text(json.dumps({"generated": now_ms, "deals": deals}, separators=(",", ":")),
                                              encoding="utf-8")
+    wfile = out / "data" / "wallet.json"
+    rep = wallet_report(c, now_ms) if cfg.publish_wallet else None
+    if rep:
+        wfile.write_text(json.dumps(rep, separators=(",", ":")), encoding="utf-8")
+    elif wfile.exists():
+        wfile.unlink()
     first = c.execute("SELECT MIN(hour) FROM hourly WHERE series LIKE 'bz:%'").fetchone()[0]
     stats = {
         "generated": now_ms, "hours_collected": season_hours, "first_hour": first * HOUR_MS if first else None,

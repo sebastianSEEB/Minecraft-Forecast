@@ -30,6 +30,13 @@ class Config:
     keep_raw_bazaar_days: float = 2    # change-only raw snapshots (0 = don't store raw)
     keep_sales_days: float = 90
 
+    # Wallet tracking (your coins): Hypixel API key + player name, checked every wallet_interval seconds.
+    # Put the key in hypixel_api_key.txt next to run.py (kept out of git), or set HYPIXEL_API_KEY.
+    player_name: str = ""
+    hypixel_api_key: str = ""
+    wallet_interval: int = 3600
+    publish_wallet: bool = True        # show the Wallet tab on the public dashboard
+
     # Local server the Minecraft mod talks to
     server_host: str = "127.0.0.1"
     server_port: int = 8765
@@ -64,4 +71,9 @@ def load_config(path: str | Path = "config.json") -> Config:
         for k, v in data.items():
             if k in known:
                 setattr(cfg, k, v)
+    if not cfg.hypixel_api_key:
+        import os
+        keyfile = p.parent / "hypixel_api_key.txt"
+        cfg.hypixel_api_key = os.environ.get("HYPIXEL_API_KEY", "") or (
+            keyfile.read_text(encoding="utf-8").strip() if keyfile.exists() else "")
     return cfg

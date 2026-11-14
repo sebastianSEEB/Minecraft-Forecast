@@ -7,6 +7,7 @@
   GET /lbin?keys=A,B    fresh lowest BIN for a few items (re-checked every 30 s) — the mod's watch list
   GET /deals            underpriced BINs from the latest full AH scan (every 5 min)
   GET /search?q=hyper   matching item keys
+  POST /wallet          {"purse": 123, "player": "name"} from the mod (purse read from the SkyBlock sidebar)
   GET /health           collector status
   GET /                 small lookup page
 """
@@ -83,6 +84,27 @@ def make_handler(cfg: Config, db: Database):
             self.end_headers()
             self.wfile.write(data)
 
+        def do_POST(self):
+            u = urllib.parse.urlparse(self.path)
+            if u.path != "/wallet":
+                return self._send(404, {"error": "not found"})
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n) or b"{}")
+                purse = float(body["purse"])
+                player = str(body.get("player") or "")[:32]
+                c = conn()
+                last = c.execute("SELECT bank, personal_bank FROM wallet WHERE source='api' ORDER BY ts DESC LIMIT 1").fetchone()
+                bank = last["bank"] if last else None
+                personal = last["personal_bank"] if last else None
+                ts = int(time.time() * 1000)
+                with db.write_lock, c:
+                    c.execute("INSERT OR REPLACE INTO wallet VALUES(?,?,?,?,?,?,?,?)",
+                              (ts, "mod", player, None, purse, bank, personal, purse + (bank or 0) + (personal or 0)))
+                return self._send(200, {"ok": True})
+            except Exception as e:
+                return self._send(400, {"error": str(e)})
+
         def do_GET(self):
             u = urllib.parse.urlparse(self.path)
             parts = [urllib.parse.unquote(p) for p in u.path.strip("/").split("/") if p]
@@ -116,6 +138,9 @@ def make_handler(cfg: Config, db: Database):
                     rows = conn().execute("SELECT hour, avg, median, high, low, n, volume FROM hourly WHERE series=? AND hour>? ORDER BY hour",
                                           (parts[1], now_h - hours)).fetchall()
                     return self._send(200, [dict(r) | {"ts": r["hour"] * HOUR_MS} for r in rows])
+                if parts[0] == "wallet":
+                    from .wallet import wallet_report
+                    return self._send(200, wallet_report(conn(), int(time.time() * 1000)) or {})
                 if parts[0] == "deals":
                     rows = conn().execute("SELECT * FROM deals ORDER BY profit DESC LIMIT 100").fetchall()
                     return self._send(200, [dict(r) for r in rows])

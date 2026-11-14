@@ -38,6 +38,8 @@ final class SkyPriceConfig {
 	boolean outbidHud = true;         // panel right of your inventory with auctions you've been outbid on (click = open)
 	int outbidHours = 12;
 	boolean highlightDeals = true;    // yellow border on AH auctions worth buying/bidding (glow when >= 20 % under fair)
+	boolean reportPurse = true;       // send your purse (from the sidebar) to the PC collector for the Wallet tab
+	int purseReportSeconds = 300;
 	boolean dealAlerts = true;        // chat alert for new underpriced BINs found by the PC collector
 	double dealMinDiscountPercent = 20;
 	double dealMinValue = 1_000_000;

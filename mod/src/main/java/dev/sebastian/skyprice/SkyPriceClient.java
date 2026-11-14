@@ -54,6 +54,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		BidHelper.register(config);
 		Watch.start(config, data);
 		Deals.start(config, data);
+		PurseReporter.start(config);
 
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
 				// Brigadier builders directly: Fabric renamed ClientCommandManager -> ClientCommands in 26.x

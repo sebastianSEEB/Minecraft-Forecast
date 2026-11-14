@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS deals (            -- underpriced BINs from the lates
     uuid TEXT PRIMARY KEY, item_key TEXT, first_seen INTEGER, ts INTEGER, price REAL, count INTEGER,
     unit_price REAL, fair REAL, discount REAL, resale REAL, profit REAL, seller TEXT, listings INTEGER, sales_72h INTEGER
 );
+CREATE TABLE IF NOT EXISTS wallet (            -- your coins over time
+    ts INTEGER, source TEXT, player TEXT, profile TEXT,   -- source: api (purse + bank, hourly) | mod (purse from sidebar)
+    purse REAL, bank REAL, personal_bank REAL, total REAL,
+    PRIMARY KEY (ts, source)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
 

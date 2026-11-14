@@ -322,6 +322,45 @@ class QuickBinJob(Job):
         _status(self.name_, last_ts=ts, cheaper_listings=updated, cheapest_sold=len(sold_cheapest))
 
 
+def wallet_from_profiles(data: dict, uuid: str) -> dict | None:
+    """Purse + bank of the selected SkyBlock profile (bank needs the in-game Banking API setting on)."""
+    profiles = data.get("profiles") or []
+    prof = next((p for p in profiles if p.get("selected")), profiles[0] if profiles else None)
+    if not prof:
+        return None
+    member = (prof.get("members") or {}).get(uuid.replace("-", ""), {})
+    purse = ((member.get("currencies") or {}).get("coin_purse")) or member.get("coin_purse") or 0
+    bank = (prof.get("banking") or {}).get("balance")
+    personal = ((member.get("profile") or {}).get("bank_account"))
+    total = float(purse) + float(bank or 0) + float(personal or 0)
+    return {"profile": prof.get("cute_name") or prof.get("profile_id"), "purse": float(purse),
+            "bank": None if bank is None else float(bank), "personal_bank": None if personal is None else float(personal),
+            "total": total}
+
+
+class WalletJob(Job):
+    """Your coins every hour via the Hypixel API (needs a personal API key)."""
+    name_ = "wallet"
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.interval = self.cfg.wallet_interval
+        self.uuid = None
+
+    def tick(self, c):
+        if not self.uuid:
+            self.uuid = self.api.uuid_of(self.cfg.player_name)
+        w = wallet_from_profiles(self.api.profiles(self.uuid, self.cfg.hypixel_api_key), self.uuid)
+        if not w:
+            raise RuntimeError("no SkyBlock profile found")
+        ts = int(time.time() * 1000)
+        with self.db.write_lock, c:
+            c.execute("INSERT OR REPLACE INTO wallet VALUES(?,?,?,?,?,?,?,?)",
+                      (ts, "api", self.cfg.player_name, w["profile"], w["purse"], w["bank"], w["personal_bank"], w["total"]))
+        _status(self.name_, last_ts=ts, total=w["total"], bank_visible=w["bank"] is not None, error=None)
+        log.info("wallet: %s purse %.0f bank %s total %.0f", self.cfg.player_name, w["purse"], w["bank"], w["total"])
+
+
 class MaintenanceJob(Job):
     name_ = "maintenance"
     interval = 3600
@@ -367,6 +406,8 @@ def start_all(cfg: Config, db: Database, stop: threading.Event) -> list[Job]:
         jobs.append(QuickBinJob(cfg, db, api, stop))
     if cfg.publish_interval > 0:
         jobs.append(PublishJob(cfg, db, api, stop))
+    if cfg.player_name and cfg.hypixel_api_key and cfg.wallet_interval > 0:
+        jobs.append(WalletJob(cfg, db, api, stop))
     for j in jobs:
         j.start()
     return jobs
