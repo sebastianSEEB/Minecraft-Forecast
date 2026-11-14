@@ -100,6 +100,9 @@ def export_site(cfg: Config, db: Database, out_dir: str | Path | None = None, no
         "needs": {"daily": 24 * 5, "skyblock_year": 124 * 5, "weekly": 168 * 5},
         "rows": seasons}, separators=(",", ":")), encoding="utf-8")
 
+    deals = [dict(r) for r in c.execute("SELECT * FROM deals ORDER BY profit DESC LIMIT 200")]
+    (out / "data" / "deals.json").write_text(json.dumps({"generated": now_ms, "deals": deals}, separators=(",", ":")),
+                                             encoding="utf-8")
     first = c.execute("SELECT MIN(hour) FROM hourly WHERE series LIKE 'bz:%'").fetchone()[0]
     stats = {
         "generated": now_ms, "hours_collected": season_hours, "first_hour": first * HOUR_MS if first else None,

@@ -78,6 +78,17 @@ final class DataClient {
 		return getJson(cfg.localServer + "/lbin?keys=" + q, 3).handle((j, e) -> e != null ? null : j);
 	}
 
+	/** Underpriced BINs from the PC collector's last full AH scan. Null if it isn't running. */
+	CompletableFuture<com.google.gson.JsonArray> localDeals() {
+		if (cfg.localServer == null || cfg.localServer.isBlank()) return CompletableFuture.completedFuture(null);
+		HttpRequest req = HttpRequest.newBuilder(URI.create(cfg.localServer + "/deals")).timeout(Duration.ofSeconds(3)).GET().build();
+		return http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).handle((resp, e) -> {
+			if (e != null || resp.statusCode() != 200) return null;
+			JsonElement el = JsonParser.parseString(resp.body());
+			return el.isJsonArray() ? el.getAsJsonArray() : null;
+		});
+	}
+
 	boolean isLoading(String key) {
 		return inFlight.contains(key);
 	}

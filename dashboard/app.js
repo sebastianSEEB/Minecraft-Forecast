@@ -48,7 +48,7 @@ async function load() {
   SUM = await r.json();
   ITEMS = SUM.items;
   ITEMS.forEach(i => { i.name = pretty(i.k); i.act = i.kind === "bz" ? (i.vol || 0) : (i.sales || 0); BYKEY[i.k] = i; });
-  renderHeader(); renderKpis(); renderMovers(); renderFcMoves(); renderFlips(); renderAlerts(); renderTable();
+  renderHeader(); renderKpis(); renderMovers(); renderFcMoves(); renderFlips(); renderAlerts(); renderDeals(); renderTable();
   route();
 }
 
@@ -108,6 +108,23 @@ function riskMark(i) {
   const t = (i.flags || []).map(f => FLAG_NAMES[f] || f).join(", ");
   return `<span class="risk${i.risk}" title="${esc(t)}">${i.risk >= 2 ? "⚠" : "•"}</span>`;
 }
+async function renderDeals() {
+  let d = null;
+  try { d = await (await fetch("data/deals.json", { cache: "no-store" })).json(); } catch (e) { d = null; }
+  const rows = (d && d.deals) || [];
+  if (d) $("#dealsInfo").textContent = `≥ 20% under fair value, 1M+ items, profit after fees · scan from ${new Date(d.generated).toLocaleTimeString()} (BIN deals go fast; the mod alerts live)`;
+  $("#deals").innerHTML = rows.slice(0, 15).map(x => `<tr style="cursor:default">
+      <td>${esc(pretty(x.item_key))}${x.count > 1 ? ` <span class="muted">×${x.count}</span>` : ""}</td>
+      <td class="num">${fmt(x.price)}</td><td class="num">${fmt(x.fair * x.count)}</td>
+      <td class="num"><span class="up">${(x.discount * 100).toFixed(0)}%</span></td>
+      <td class="num"><span class="up">+${fmt(x.profit)}</span></td>
+      <td><button class="link copy" data-c="/viewauction ${esc(x.uuid)}">Copy /viewauction</button></td></tr>`).join("") ||
+    `<tr><td colspan="6" class="empty">No underpriced BINs in the latest scan.</td></tr>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("button.copy"); if (!b) return;
+  navigator.clipboard && navigator.clipboard.writeText(b.dataset.c).then(() => { b.textContent = "Copied ✓"; setTimeout(() => b.textContent = "Copy /viewauction", 1500); });
+});
 function renderAlerts() {
   const rows = ITEMS.filter(i => i.risk >= 2).sort((a, b) => b.act - a.act).slice(0, 10);
   $("#alerts").innerHTML = rows.length ? rows.map(i => li(i, `<span class="risk2">${esc((i.flags || []).filter(f => f !== "thin").map(f => FLAG_NAMES[f] || f).join(", "))}</span>`)).join("")

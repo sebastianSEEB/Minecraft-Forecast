@@ -62,6 +62,15 @@ bidding is a macro under Hypixel's rules):
 * fresh lowest BIN comes from your PC collector, which re-checks every 30 s: the newest listings, plus BINs that just sold. If
   the collector isn't running, it falls back to the hourly published data.
 
+**Underpriced BIN finder** (every full AH scan, every 5 min): finds BINs at least 20% under fair value
+(`deal_min_discount`) on items worth 1M+ (`deal_min_value`) that still make a profit after fees when resold just
+under the next-cheapest BIN. Items with fewer than 3 sales in 72 h or a high manipulation risk are skipped.
+* mod: chat alert for each new deal (max 3 per minute), `/skyprice deals` lists them, and `/skyprice open <n>` opens
+  that auction with `/viewauction`. You buy it yourself.
+* dashboard: "Underpriced BINs" table with a copy button for `/viewauction <id>`. It updates hourly, and good BINs go fast,
+  so use the mod alerts for live deals.
+* local: `GET /deals`
+
 **Fair value and manipulation checks** (`market/marketcheck.py`, also shown on the dashboard as "Market check"):
 * fair value = median of three estimates: clean sold median (72 h), cheapest-25% of current listings, and 7-day average
 * **wash trading**: the same seller→buyer pair trading repeatedly. These sales are flagged and left out of fair value.
@@ -166,6 +175,7 @@ python tests/test_forecast.py     # formulas vs. lecture examples
 python tests/test_seasonality.py  # cycle detection, false-positive rate, SkyBlock calendar
 python tests/test_market.py       # fair value + manipulation scenarios
 python tests/test_quickbin.py     # 30-second lowest-BIN re-check
+python tests/test_deals.py        # underpriced BIN finder
 python tests/test_e2e.py          # fake Hypixel API → collector → DB → server → HUD
 python tests/fake_hypixel.py      # run the fake API yourself (set api_base in config.json)
 ```

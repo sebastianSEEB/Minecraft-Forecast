@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS hourly (            -- hourly bars; what the forecast
     avg REAL, median REAL, high REAL, low REAL, n INTEGER, volume REAL,
     PRIMARY KEY (series, hour)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS deals (            -- underpriced BINs from the latest full AH scan
+    uuid TEXT PRIMARY KEY, item_key TEXT, first_seen INTEGER, ts INTEGER, price REAL, count INTEGER,
+    unit_price REAL, fair REAL, discount REAL, resale REAL, profit REAL, seller TEXT, listings INTEGER, sales_72h INTEGER
+);
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
 

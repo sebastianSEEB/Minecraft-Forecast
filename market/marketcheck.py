@@ -29,6 +29,12 @@ from .db import HOUR_MS
 DAY_MS = 86_400_000
 
 
+def net_after_fees(sell: float) -> float:
+    """What you keep when a BIN sells: listing fee 1 % (< 10M) / 2 % (10M–100M) / 2.5 % (>= 100M), 1 % claim tax above 1M."""
+    fee = 0.025 if sell >= 100e6 else 0.02 if sell >= 10e6 else 0.01
+    return sell * (1 - fee - (0.01 if sell > 1e6 else 0))
+
+
 def _avg(c, series: str, now_h: int, hours: int):
     r = c.execute("SELECT SUM(avg*n)/SUM(n), AVG(avg) FROM hourly WHERE series=? AND hour>? AND hour<=?",
                   (series, now_h - hours, now_h)).fetchone()

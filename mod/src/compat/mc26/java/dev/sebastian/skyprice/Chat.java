@@ -13,4 +13,12 @@ final class Chat {
 			if (mc.player != null) mc.player.sendSystemMessage(c);
 		});
 	}
+
+	/** Runs a server command the player asked for (e.g. "viewauction <id>"), without the leading slash. */
+	static void command(String cmd) {
+		Minecraft mc = Minecraft.getInstance();
+		mc.execute(() -> {
+			if (mc.player != null) mc.player.connection.sendCommand(cmd);
+		});
+	}
 }

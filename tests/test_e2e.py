@@ -76,6 +76,9 @@ lb = get("/lbin?keys=HYPERION,ASPECT_OF_THE_END,NOPE")
 print("LBIN", lb, "quick:", STATUS.get("quick_bin"))
 assert "HYPERION" in lb and lb["HYPERION"]["lowest"] > 0 and "NOPE" not in lb
 assert "quick_bin" in STATUS and "error" not in STATUS["quick_bin"], STATUS.get("quick_bin")
+deals = get("/deals")
+print("DEALS", len(deals), [(d["item_key"], round(d["discount"], 2)) for d in deals[:3]])
+assert isinstance(deals, list)
 hyp = get("/itemdata/HYPERION")
 print("MARKET HYPERION", {k: hyp["market"][k] for k in ("fair", "resale", "risk", "flags")}, hyp["market"]["listed"])
 assert hyp["market"]["listed"]["count"] > 50 and hyp["market"]["fair"] > 9e8

@@ -3,6 +3,7 @@ package dev.sebastian.skyprice;
 import java.util.List;
 import java.util.Locale;
 
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -46,6 +47,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 
 		BidHelper.register(config);
 		Watch.start(config, data);
+		Deals.start(config, data);
 
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
 				// Brigadier builders directly: Fabric renamed ClientCommandManager -> ClientCommands in 26.x
@@ -66,6 +68,32 @@ public final class SkyPriceClient implements ClientModInitializer {
 											String k = StringArgumentType.getString(ctx, "item").trim().toUpperCase(Locale.ROOT).replace(' ', '_');
 											ctx.getSource().sendFeedback(Component.literal(Watch.remove(k)
 													? "[SkyPrice] Stopped watching " + k : "[SkyPrice] " + k + " wasn't on the watch list"));
+											return 1;
+										})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("deals").executes(ctx -> {
+							var list = Deals.list();
+							if (list.isEmpty()) ctx.getSource().sendFeedback(Component.literal(
+									"[SkyPrice] No underpriced BINs right now (needs your PC collector running)."));
+							for (int i = 0; i < Math.min(10, list.size()); i++) {
+								Deals.Deal d = list.get(i);
+								ctx.getSource().sendFeedback(HudFormatter.line((i + 1) + ". ", HudFormatter.AQUA,
+										(d.count() > 1 ? d.count() + "x " : "") + d.key(), HudFormatter.WHITE,
+										String.format(Locale.ROOT, "  BIN %s, %.0f%% under fair, ", HudFormatter.fmt(d.price()), d.discount() * 100),
+										HudFormatter.GRAY, "+" + HudFormatter.fmt(d.profit()), 0x55FF55));
+							}
+							if (!list.isEmpty()) ctx.getSource().sendFeedback(Component.literal("[SkyPrice] /skyprice open <number> opens the auction."));
+							return 1;
+						}))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("open")
+								.then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("n", IntegerArgumentType.integer(1))
+										.executes(ctx -> {
+											int n = IntegerArgumentType.getInteger(ctx, "n");
+											var list = Deals.list();
+											if (n > list.size()) {
+												ctx.getSource().sendError(Component.literal("No deal #" + n + " (see /skyprice deals)"));
+												return 0;
+											}
+											Chat.command("viewauction " + list.get(n - 1).uuid());
 											return 1;
 										})))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("unwatchall").executes(ctx -> {

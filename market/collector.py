@@ -183,12 +183,13 @@ class ActiveAHJob(Job):
         self.interval = self.cfg.active_ah_interval
         self.bars = StreamingBars()
         self.decoded: dict[str, tuple] = {}    # auction uuid -> (key, count); listings don't change
+        self.fair_cache: dict[str, tuple] = {} # item key -> (time, auction_check result)
 
     def tick(self, c):
         first = self.api.auctions_page(0)
         ts = int(first.get("lastUpdated") or time.time() * 1000)
         pages = int(first.get("totalPages") or 1)
-        listings: dict[str, list] = {}       # key -> [(unit price, seller), ...]
+        listings: dict[str, list] = {}       # key -> [(unit price, seller, uuid, count, total price), ...]
         seen = set()
         for p in range(pages):
             data = first if p == 0 else self.api.auctions_page(p)
@@ -209,15 +210,15 @@ class ActiveAHJob(Job):
                 unit = float(a.get("starting_bid") or 0) / cnt
                 if unit <= 0:
                     continue
-                listings.setdefault(k, []).append((unit, a.get("auctioneer")))
+                listings.setdefault(k, []).append((unit, a.get("auctioneer"), uid, cnt, float(a.get("starting_bid") or 0)))
         self.decoded = {u: v for u, v in self.decoded.items() if u in seen}
         hour = ts // HOUR_MS
         now_rows, bar_rows = [], []
         for k, lst in listings.items():
-            prices = sorted(p for p, _ in lst)
+            prices = sorted(x[0] for x in lst)
             n = len(prices)
             per_seller: dict = {}
-            for _, sel in lst:
+            for _, sel, *_ in lst:
                 per_seller[sel] = per_seller.get(sel, 0) + 1
             now_rows.append((k, ts, prices[0], n, prices[1] if n > 1 else None, prices[int(0.25 * (n - 1))],
                              statistics.median(prices), len(per_seller), max(per_seller.values()) / n))
@@ -229,8 +230,48 @@ class ActiveAHJob(Job):
                           "VALUES(?,?,?,?,?,?,?,?,?)", now_rows)
             c.executemany(UPSERT_HOURLY, bar_rows)
             Database.set_meta(c, "active_last", ts)
-        _status(self.name_, last_ts=ts, pages=pages, items=len(listings))
-        log.info("active auctions: %d pages, %d distinct BIN items", pages, len(listings))
+        n_deals = self.find_deals(c, listings, ts)
+        _status(self.name_, last_ts=ts, pages=pages, items=len(listings), deals=n_deals)
+        log.info("active auctions: %d pages, %d distinct BIN items, %d deals", pages, len(listings), n_deals)
+
+    def find_deals(self, c, listings: dict, ts: int) -> int:
+        """BINs at least deal_min_discount under fair value, worth >= deal_min_value, still profitable after fees."""
+        from .marketcheck import auction_check, net_after_fees
+        cfg = self.cfg
+        rows = []
+        for k, lst in listings.items():
+            lst = sorted(lst)
+            cheapest = lst[0][0]
+            hit = self.fair_cache.get(k)
+            if hit is None or time.time() - hit[0] > 1800:
+                hit = (time.time(), auction_check(c, k, ts))
+                self.fair_cache[k] = hit
+            m = hit[1]
+            fair = m.get("fair")
+            if not fair or m.get("risk", 0) >= 2 or m.get("sales_72h", 0) < cfg.deal_min_sales_72h:
+                continue
+            if cheapest > fair * (1 - cfg.deal_min_discount):
+                continue
+            for i, (unit, seller, uid, cnt, total) in enumerate(lst):
+                if unit > fair * (1 - cfg.deal_min_discount):
+                    break
+                if fair * cnt < cfg.deal_min_value:
+                    continue
+                competitor = lst[1][0] if i == 0 and len(lst) > 1 else (lst[0][0] if i > 0 else unit * 1.05)
+                resale = min(fair, competitor * 0.99)
+                profit = (net_after_fees(resale * cnt) - total)
+                if profit <= 0:
+                    continue
+                rows.append((uid, k, ts, ts, total, cnt, unit, fair, 1 - unit / fair, resale, profit, seller, len(lst),
+                             m.get("sales_72h", 0)))
+        with self.db.write_lock, c:
+            keep = [r[0] for r in rows]
+            c.execute(f"DELETE FROM deals WHERE uuid NOT IN ({','.join('?' * len(keep))})" if keep else "DELETE FROM deals", keep)
+            c.executemany("""INSERT INTO deals(uuid, item_key, first_seen, ts, price, count, unit_price, fair, discount, resale, profit,
+                             seller, listings, sales_72h) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                             ON CONFLICT(uuid) DO UPDATE SET ts=excluded.ts, fair=excluded.fair, discount=excluded.discount,
+                             resale=excluded.resale, profit=excluded.profit, listings=excluded.listings""", rows)
+        return len(rows)
 
 
 class QuickBinJob(Job):

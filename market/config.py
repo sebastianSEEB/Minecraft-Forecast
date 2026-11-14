@@ -21,6 +21,11 @@ class Config:
     active_ah_interval: int = 300      # full active-auction scan for lowest BIN (0 = off)
     quick_bin_interval: int = 30       # re-check lowest BIN from the newest listings + just-sold BINs (0 = off)
 
+    # Deal finder (runs on every full AH scan)
+    deal_min_discount: float = 0.20    # BIN at least 20 % under fair value
+    deal_min_value: float = 1_000_000  # fair value of the listing (all items in the stack) at least 1M
+    deal_min_sales_72h: int = 3        # skip items that barely sell
+
     # Retention (days). Hourly bars are kept forever; they are what forecasts use.
     keep_raw_bazaar_days: float = 2    # change-only raw snapshots (0 = don't store raw)
     keep_sales_days: float = 90

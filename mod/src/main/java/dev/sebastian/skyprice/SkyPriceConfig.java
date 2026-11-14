@@ -33,7 +33,12 @@ final class SkyPriceConfig {
 	boolean copyBidOnClick = true;
 	boolean watchBids = true;         // auctions you click (bid copied) go on a watch list
 	int watchRecheckSeconds = 30;     // how often the watch list re-checks lowest BIN
-	int watchHours = 48;              // watched auctions expire after this   // clicking an auction copies the target bid to your clipboard (you place the bid yourself)
+	int watchHours = 48;              // watched auctions expire after this
+
+	boolean dealAlerts = true;        // chat alert for new underpriced BINs found by the PC collector
+	double dealMinDiscountPercent = 20;
+	double dealMinValue = 1_000_000;
+	int dealPollSeconds = 60;   // clicking an auction copies the target bid to your clipboard (you place the bid yourself)
 	boolean showHistory = true;      // 7d / 30d / all-time lines
 	boolean showForecast = true;
 	boolean showSeasons = true;

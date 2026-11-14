@@ -5,6 +5,7 @@
   GET /item/<KEY>       full stats + forecast JSON
   GET /history/<SERIES>?hours=168   hourly bars (series: bz:<ID>:buy, ah:<KEY>, lbin:<KEY>)
   GET /lbin?keys=A,B    fresh lowest BIN for a few items (re-checked every 30 s) — the mod's watch list
+  GET /deals            underpriced BINs from the latest full AH scan (every 5 min)
   GET /search?q=hyper   matching item keys
   GET /health           collector status
   GET /                 small lookup page
@@ -115,6 +116,9 @@ def make_handler(cfg: Config, db: Database):
                     rows = conn().execute("SELECT hour, avg, median, high, low, n, volume FROM hourly WHERE series=? AND hour>? ORDER BY hour",
                                           (parts[1], now_h - hours)).fetchall()
                     return self._send(200, [dict(r) | {"ts": r["hour"] * HOUR_MS} for r in rows])
+                if parts[0] == "deals":
+                    rows = conn().execute("SELECT * FROM deals ORDER BY profit DESC LIMIT 100").fetchall()
+                    return self._send(200, [dict(r) for r in rows])
                 if parts[0] == "lbin":
                     keys = [k.strip().upper() for k in qs.get("keys", [""])[0].split(",") if k.strip()][:50]
                     out = {}
