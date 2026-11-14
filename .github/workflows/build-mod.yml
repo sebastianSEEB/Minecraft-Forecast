@@ -17,7 +17,11 @@ jobs:
         include:
           - mc: "1.21.11"
             java: "25"       # Loom 1.19 needs a Java 25 JVM; the jar still targets Java 21
-          - mc: "26.1.2"
+          - mc: "26.1.2"        # runs on 26.1, 26.1.1, 26.1.2
+            java: "25"
+          - mc: "26.2"
+            java: "25"
+          - mc: "26.3"
             java: "25"
     defaults:
       run:
@@ -33,7 +37,7 @@ jobs:
         if: matrix.mc != '1.21.11'
         run: |
           cp versions/build.gradle.26x build.gradle
-          grep -vE '^(minecraft_version|loader_version|loom_version|fabric_api_version)=' gradle.properties > gp.tmp
+          grep -vE '^(minecraft_version|loader_version|loom_version|fabric_api_version|mc_range)=' gradle.properties > gp.tmp
           cat versions/${{ matrix.mc }}/versions.properties >> gp.tmp
           mv gp.tmp gradle.properties
           cat gradle.properties
@@ -45,7 +49,8 @@ jobs:
         run: |
           mkdir -p ../out
           jar=$(ls build/libs/*.jar | grep -v -- '-sources' | head -1)
-          cp "$jar" ../out/skyprice-1.0.0+mc${{ matrix.mc }}.jar
+          name="${{ matrix.mc }}"; [ "$name" = "26.1.2" ] && name="26.1"
+          cp "$jar" ../out/skyprice-1.0.0+mc$name.jar
           ls -la ../out
       - uses: actions/upload-artifact@v4
         with:
@@ -70,4 +75,4 @@ jobs:
           gh release delete mod-latest --repo "$REPO" --yes --cleanup-tag || true
           gh release create mod-latest jars/*.jar --repo "$REPO" --target "${{ github.sha }}" \
             --title "SkyPrice HUD mod (latest build)" \
-            --notes "Drag the jar that matches your Minecraft version into your mods folder, together with Fabric API. 1.21.11 needs Java 21; 26.1.2 needs Java 25. Built from ${{ github.sha }}."
+            --notes "Drag the jar that matches your Minecraft version into your mods folder, together with Fabric API for that version. mc26.1 = Minecraft 26.1 / 26.1.1 / 26.1.2, mc26.2 = 26.2.x, mc26.3 = 26.3.x, mc1.21.11 = 1.21.11. Built from ${{ github.sha }}."

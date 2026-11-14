@@ -12,7 +12,7 @@
 	},
 	"depends": {
 		"fabricloader": ">=0.16.10",
-		"minecraft": "~${mc}",
+		"minecraft": "${mc_range}",
 		"fabric-api": "*"
 	}
 }
