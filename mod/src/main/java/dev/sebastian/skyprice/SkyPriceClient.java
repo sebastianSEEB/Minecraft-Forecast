@@ -45,6 +45,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 			lines.addAll(r.lines());
 		});
 
+		Highlight.init(config, data);
 		BidHelper.register(config);
 		Watch.start(config, data);
 		Deals.start(config, data);

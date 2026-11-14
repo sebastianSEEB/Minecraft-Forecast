@@ -35,6 +35,7 @@ final class SkyPriceConfig {
 	int watchRecheckSeconds = 30;     // how often the watch list re-checks lowest BIN
 	int watchHours = 48;              // watched auctions expire after this
 
+	boolean highlightDeals = true;    // yellow border on AH auctions worth buying/bidding (glow when >= 20 % under fair)
 	boolean dealAlerts = true;        // chat alert for new underpriced BINs found by the PC collector
 	double dealMinDiscountPercent = 20;
 	double dealMinValue = 1_000_000;
