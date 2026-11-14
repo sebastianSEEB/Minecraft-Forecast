@@ -23,6 +23,8 @@ import net.minecraft.world.item.component.ItemLore;
 final class Highlight {
 	interface Painter {
 		void fill(int x1, int y1, int x2, int y2, int argb);
+
+		void text(String text, int x, int y, int argb);
 	}
 
 	private record Cached(int stackId, long at, int level) {}   // level: 0 none, 1 worth it, 2 strong deal

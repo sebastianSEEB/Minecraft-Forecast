@@ -30,8 +30,12 @@ final class BidHelper {
 		cfg = config;
 		ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
 			if (!(screen instanceof AbstractContainerScreen<?>)) return;
-			RenderHook.register(screen, Highlight::paint);
+			RenderHook.register(screen, (s, painter) -> {
+				Highlight.paint(s, painter);
+				OutbidHud.paint(s, painter);
+			});
 			ScreenMouseEvents.afterMouseClick(screen).register((s, event, consumed) -> {
+				if (OutbidHud.click(s, event.x(), event.y())) return true;
 				if (cfg.copyBidOnClick) onClick(s);
 				return consumed;
 			});

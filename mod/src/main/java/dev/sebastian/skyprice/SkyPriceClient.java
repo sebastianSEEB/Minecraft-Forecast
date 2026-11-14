@@ -12,6 +12,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 
@@ -46,6 +47,10 @@ public final class SkyPriceClient implements ClientModInitializer {
 		});
 
 		Highlight.init(config, data);
+		OutbidHud.init(config);
+		ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
+			if (!overlay) OutbidHud.onChat(message);
+		});
 		BidHelper.register(config);
 		Watch.start(config, data);
 		Deals.start(config, data);

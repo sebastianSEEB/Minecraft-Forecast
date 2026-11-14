@@ -63,6 +63,11 @@ bidding is a macro under Hypixel's rules):
 * fresh lowest BIN comes from your PC collector, which re-checks every 30 s: the newest listings, plus BINs that just sold. If
   the collector isn't running, it falls back to the hourly published data.
 
+**Outbid HUD**: a panel to the right of your inventory (E) lists the auctions you've been outbid on. It reads Hypixel's
+"outbid you" chat messages, which carry the auction link. Click a row to open that auction and bid again yourself, or click
+✕ to dismiss it. Rows disappear when you bid on that item again, or after 12 h (`outbidHours`). Turn it off with
+`"outbidHud": false`.
+
 **AH highlight**: in the Auction House, auctions you could flip for at least `minFlipProfitPercent` after fees (or that are
 worth bidding on) **and** that sell regularly (≥ 3 sales in 24 h) **and** have no manipulation flags get a **yellow border**.
 Ones at least 20% under fair value also get a **gold glow**. Turn it off with `"highlightDeals": false`.
