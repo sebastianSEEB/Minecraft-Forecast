@@ -11,5 +11,6 @@ For 26.1.2 / 26.2 / 26.3:
      The 1.21.11 jar targets Java 21; 26.x jars target Java 25.
   4. Run gradlew build as usual
 
-The Java source is the same for every version (Mojang names everywhere).
+The Java source is the same for every version (Mojang names everywhere), except the few lines in
+src/compat/mc1_21 and src/compat/mc26 that each build file picks up.
 Version numbers come from the official FabricMC/fabric-example-mod branches.

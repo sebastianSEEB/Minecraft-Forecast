@@ -8,6 +8,9 @@ base {
 	archivesName = "skyprice"
 }
 
+// the few lines that differ between Minecraft versions live in src/compat/<version>
+sourceSets.main.java.srcDir "src/compat/mc26/java"
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"

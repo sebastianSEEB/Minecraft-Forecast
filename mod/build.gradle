@@ -7,6 +7,9 @@ base {
 	archivesName = "skyprice"
 }
 
+// the few lines that differ between Minecraft versions live in src/compat/<version>
+sourceSets.main.java.srcDir "src/compat/mc1_21/java"
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings loom.officialMojangMappings()
