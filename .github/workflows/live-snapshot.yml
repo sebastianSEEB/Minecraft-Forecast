@@ -1,0 +1,87 @@
+name: Live snapshot (collector test + dashboard)
+
+# Runs the real collector against the live Hypixel API for a few minutes, then publishes
+# the dashboard to the gh-pages branch. Your PC collector replaces this snapshot as soon
+# as it publishes (it force-pushes gh-pages every hour).
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to collect (minutes)"
+        default: "8"
+      publish:
+        description: "Publish the result to GitHub Pages"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests (forecast formulas)
+        run: python tests/test_forecast.py
+      - name: Collect from live Hypixel API
+        run: |
+          cat > config.json <<'JSON'
+          {"bazaar_interval": 30, "ended_interval": 45, "active_ah_interval": 240,
+           "publish_interval": 0, "publish_label": "GitHub Actions live test"}
+          JSON
+          timeout --signal=INT ${{ inputs.minutes || '8' }}m python run.py -v 2>&1 | tee collector.log || true
+      - name: Check what was collected
+        run: |
+          python - <<'PY'
+          import sqlite3, json
+          c = sqlite3.connect("data/market.sqlite3")
+          out = {t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("bz_now","ah_sale","lbin_now","hourly")}
+          out["sample_bazaar"] = c.execute("SELECT product,buy,sell FROM bz_now WHERE product IN ('ENCHANTED_DIAMOND','BOOSTER_COOKIE')").fetchall()
+          out["top_ah_keys"] = c.execute("SELECT item_key, COUNT(*) n, ROUND(AVG(unit_price)) FROM ah_sale GROUP BY item_key ORDER BY n DESC LIMIT 15").fetchall()
+          out["lbin_sample"] = c.execute("SELECT item_key, lowest_bin, listings FROM lbin_now WHERE item_key IN ('HYPERION','ASPECT_OF_THE_END','TERMINATOR')").fetchall()
+          out["errors_in_log"] = sum(1 for l in open("collector.log") if " ERROR " in l)
+          print(json.dumps(out, indent=1))
+          open("snapshot.json", "w").write(json.dumps(out, indent=1))
+          assert out["bz_now"] > 1000, "bazaar not collected"
+          assert out["ah_sale"] > 0, "no auction sales collected"
+          PY
+          echo '### Collected' >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY; cat snapshot.json >> $GITHUB_STEP_SUMMARY; echo '```' >> $GITHUB_STEP_SUMMARY
+      - name: Build dashboard
+        run: python -m market.publish --no-push
+      - name: HUD output for a few items
+        run: |
+          python - <<'PY'
+          from market.config import load_config
+          from market.db import Database
+          from market.stats import item_stats
+          from market.hud import hud_lines
+          cfg = load_config(); c = Database(cfg.db_path).connect()
+          for k in ["ENCHANTED_DIAMOND", "BOOSTER_COOKIE", "HYPERION", "ASPECT_OF_THE_END", "ENCHANTMENT_ULTIMATE_WISE_5"]:
+              print(f"[{k}]")
+              for line in hud_lines(item_stats(c, k, cfg)):
+                  print("  " + "".join(s["t"] for s in line))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot
+          path: |
+            collector.log
+            snapshot.json
+            data/site/data/summary.json
+      - name: Publish to gh-pages
+        if: ${{ inputs.publish }}
+        run: |
+          cd data/site
+          touch .nojekyll
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Live snapshot from GitHub Actions"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages

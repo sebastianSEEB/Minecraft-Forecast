@@ -1,0 +1,61 @@
+"""SQLite storage. One file, WAL mode so the collector can write while the server reads."""
+from __future__ import annotations
+
+import sqlite3
+import threading
+from pathlib import Path
+
+HOUR_MS = 3_600_000
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS bz_now (            -- latest bazaar quick_status per product
+    product TEXT PRIMARY KEY, ts INTEGER,
+    buy REAL, sell REAL, buy_vol INTEGER, sell_vol INTEGER,
+    buy_week INTEGER, sell_week INTEGER, buy_orders INTEGER, sell_orders INTEGER
+);
+CREATE TABLE IF NOT EXISTS bz_raw (            -- change-only raw snapshots (short retention)
+    product TEXT, ts INTEGER, buy REAL, sell REAL, buy_vol INTEGER, sell_vol INTEGER,
+    buy_week INTEGER, sell_week INTEGER, buy_orders INTEGER, sell_orders INTEGER,
+    PRIMARY KEY (product, ts)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS ah_sale (           -- every finished auction (auctions_ended)
+    auction_id TEXT PRIMARY KEY, ts INTEGER, item_key TEXT, item_id TEXT,
+    price REAL, count INTEGER, unit_price REAL, bin INTEGER
+);
+CREATE INDEX IF NOT EXISTS ah_sale_key_ts ON ah_sale(item_key, ts);
+CREATE INDEX IF NOT EXISTS ah_sale_ts ON ah_sale(ts);
+CREATE TABLE IF NOT EXISTS lbin_now (          -- lowest BIN per item from the latest full AH scan
+    item_key TEXT PRIMARY KEY, ts INTEGER, lowest_bin REAL, listings INTEGER
+);
+CREATE TABLE IF NOT EXISTS hourly (            -- hourly bars; what the forecasts are built on
+    series TEXT, hour INTEGER,                  -- series: bz:<id>:buy | bz:<id>:sell | ah:<key> | lbin:<key>
+    avg REAL, median REAL, high REAL, low REAL, n INTEGER, volume REAL,
+    PRIMARY KEY (series, hour)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
+"""
+
+
+class Database:
+    def __init__(self, path: str):
+        self.path = path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self.write_lock = threading.Lock()
+        with self.connect() as c:
+            c.executescript(SCHEMA)
+
+    def connect(self) -> sqlite3.Connection:
+        c = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.row_factory = sqlite3.Row
+        return c
+
+    @staticmethod
+    def set_meta(c: sqlite3.Connection, k: str, v) -> None:
+        c.execute("INSERT INTO meta(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, str(v)))
+
+    @staticmethod
+    def get_meta(c: sqlite3.Connection, k: str, default=None):
+        row = c.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
+        return row[0] if row else default

@@ -1,0 +1,7 @@
+data/
+__pycache__/
+*.pyc
+config.json
+mod/build/
+mod/.gradle/
+mod/run/

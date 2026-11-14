@@ -1,0 +1,73 @@
+name: Build mod
+
+on:
+  push:
+    paths: ["mod/**", ".github/workflows/build-mod.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mc: "1.21.11"
+            java: "21"
+          - mc: "26.1.2"
+            java: "25"
+    defaults:
+      run:
+        working-directory: mod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Select Minecraft ${{ matrix.mc }}
+        if: matrix.mc != '1.21.11'
+        run: |
+          cp versions/build.gradle.26x build.gradle
+          grep -vE '^(minecraft_version|loader_version|loom_version|fabric_api_version)=' gradle.properties > gp.tmp
+          cat versions/${{ matrix.mc }}/versions.properties >> gp.tmp
+          mv gp.tmp gradle.properties
+          cat gradle.properties
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew build --stacktrace
+      - name: Collect jar
+        run: |
+          mkdir -p ../out
+          jar=$(ls build/libs/*.jar | grep -v -- '-sources' | head -1)
+          cp "$jar" ../out/skyprice-1.0.0+mc${{ matrix.mc }}.jar
+          ls -la ../out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skyprice-mc${{ matrix.mc }}
+          path: out/*.jar
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}        # publish whichever versions built, even if one failed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: jars
+          merge-multiple: true
+      - name: Publish "mod-latest" release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -la jars
+          gh release delete mod-latest --repo "$REPO" --yes --cleanup-tag || true
+          gh release create mod-latest jars/*.jar --repo "$REPO" --target "${{ github.sha }}" \
+            --title "SkyPrice HUD mod (latest build)" \
+            --notes "Drag the jar that matches your Minecraft version into your mods folder, together with Fabric API. 1.21.11 needs Java 21; 26.1.2 needs Java 25. Built from ${{ github.sha }}."

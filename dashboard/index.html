@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SkyBlock Market — Bazaar & AH prices and forecasts</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>SkyBlock <span>Market</span></h1>
+      <div class="sub">Hypixel SkyBlock Bazaar &amp; Auction House prices, with forecasts from course forecasting models (EXC 3650)</div>
+    </div>
+    <div class="pill" id="fresh"><i></i><span>loading…</span></div>
+  </header>
+
+  <section class="grid kpis" id="kpis"></section>
+
+  <section class="grid three">
+    <div class="card">
+      <div class="toolbar" style="justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0">Biggest 24h moves</h2>
+        <div class="tabs" id="moverTabs"><button data-v="up" class="on">Rising</button><button data-v="down">Falling</button></div>
+      </div>
+      <ul class="list" id="movers"></ul>
+    </div>
+    <div class="card">
+      <div class="toolbar" style="justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0">Forecast: next 24h</h2>
+        <div class="tabs" id="fcTabs"><button data-v="up" class="on">Expected up</button><button data-v="down">Expected down</button></div>
+      </div>
+      <ul class="list" id="fcMoves"></ul>
+    </div>
+    <div class="card">
+      <h2>Bazaar flips <span class="muted small">margin, ≥ 50k traded/day</span></h2>
+      <ul class="list" id="flips"></ul>
+    </div>
+  </section>
+
+  <section class="card" id="detail"></section>
+
+  <section class="card">
+    <div class="toolbar">
+      <h2 style="margin:0 8px 0 0">All items</h2>
+      <input type="search" id="q" placeholder="Search items… (e.g. hyperion, enchanted diamond)">
+      <div class="tabs" id="kindTabs"><button data-v="all" class="on">All</button><button data-v="bz">Bazaar</button><button data-v="ah">Auction House</button></div>
+      <span class="muted small" id="count"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="more"><button class="link" id="moreBtn">Show more</button></div>
+  </section>
+
+  <footer>
+    Data: Hypixel public API (bazaar every minute, every finished auction, full AH scan every 5 min), collected by a personal
+    collector and published as a static site. Prices are SkyBlock coins. Bazaar "price" = instant-buy price; auction "price" =
+    lowest BIN (or average sale if nothing is listed). Not affiliated with Hypixel.
+    <span id="genInfo"></span>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

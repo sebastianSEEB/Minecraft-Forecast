@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>SkyBlock Market</title>
+<style>
+  body{font:14px/1.4 system-ui,sans-serif;background:#16161c;color:#ddd;margin:0;padding:24px;max-width:900px}
+  h1{font-size:18px;margin:0 0 12px;color:#fa0}
+  input{background:#22222b;color:#eee;border:1px solid #444;border-radius:6px;padding:8px 10px;width:320px;font:inherit}
+  #results span{display:inline-block;margin:6px 6px 0 0;padding:3px 8px;border-radius:4px;background:#2a2a35;cursor:pointer}
+  #results span:hover{background:#3a3a48}
+  .tip{background:#100010ee;border:2px solid #2d0a63;border-radius:4px;padding:8px 10px;margin:16px 0;font-family:monospace;white-space:pre;display:inline-block;min-width:420px}
+  #status{color:#888;font-size:12px;margin-bottom:12px}
+  svg{background:#1d1d25;border-radius:6px;margin-top:8px}
+  pre{background:#1d1d25;padding:10px;border-radius:6px;overflow:auto;max-height:300px;font-size:12px}
+  details summary{cursor:pointer;color:#888}
+</style></head><body>
+<h1>SkyBlock Market — local</h1>
+<div id="status">loading status…</div>
+<input id="q" placeholder="Search item, e.g. enchanted diamond, hyperion" autofocus>
+<div id="results"></div>
+<div id="view"></div>
+<script>
+const $ = s => document.querySelector(s);
+const hex = c => '#' + c.toString(16).padStart(6, '0');
+const fmt = v => { const a = Math.abs(v); for (const [d,s] of [[1e9,'B'],[1e6,'M'],[1e3,'k']]) if (a >= d) return +(v/d).toFixed(2) + s; return a >= 100 ? Math.round(v).toLocaleString() : +v.toFixed(2) + ''; };
+async function j(u){ const r = await fetch(u); return r.json(); }
+async function status(){
+  try{ const h = await j('/health');
+    const ago = t => t ? Math.round((Date.now()-t)/1000)+'s ago' : 'never';
+    $('#status').textContent = Object.entries(h.jobs).map(([k,v]) => `${k}: ${ago(v.updated)}${v.error?' ⚠ '+v.error:''}`).join(' · ')
+      + ` · rows: ${Object.entries(h.rows).map(([k,v])=>k+'='+v).join(', ')}`;
+  }catch(e){ $('#status').textContent = 'server not reachable'; }
+}
+status(); setInterval(status, 10000);
+let timer;
+$('#q').addEventListener('input', e => { clearTimeout(timer); timer = setTimeout(async () => {
+  const keys = await j('/search?q=' + encodeURIComponent(e.target.value));
+  $('#results').innerHTML = keys.map(k => `<span data-k="${k}">${k}</span>`).join('');
+}, 200); });
+$('#results').addEventListener('click', e => { if (e.target.dataset.k) show(e.target.dataset.k); });
+function chart(rows, fc){
+  const W = 860, H = 220, P = 36;
+  const pts = rows.map(r => [r.ts, r.median ?? r.avg]);
+  if (fc && fc.available){ const last = pts.at(-1)[0];
+    for (const h of ['1','6','24']) pts.push([last + h*3600e3, fc.forecasts[h], true]); }
+  if (pts.length < 2) return '<p>Not enough history for a chart yet.</p>';
+  const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+  const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys)||1;
+  const X = x => P + (x-x0)/(x1-x0||1)*(W-2*P), Y = y => H-P - (y-y0)/((y1-y0)||1)*(H-2*P);
+  const hist = pts.filter(p=>!p[2]).map(p=>`${X(p[0])},${Y(p[1])}`).join(' ');
+  const f = pts.filter((p,i)=>p[2] || i===rows.length-1).map(p=>`${X(p[0])},${Y(p[1])}`).join(' ');
+  return `<svg width="${W}" height="${H}"><polyline fill="none" stroke="#fa0" stroke-width="1.5" points="${hist}"/>
+    <polyline fill="none" stroke="#5ff" stroke-width="1.5" stroke-dasharray="4 3" points="${f}"/>
+    <text x="${P}" y="14" fill="#888" font-size="11">${fmt(y1)}</text>
+    <text x="${P}" y="${H-8}" fill="#888" font-size="11">${fmt(y0)}</text>
+    <text x="${W-P-160}" y="14" fill="#5ff" font-size="11">- - forecast +1h / +6h / +24h</text></svg>`;
+}
+async function show(k){
+  const [hud, item] = await Promise.all([j('/hud/'+k), j('/item/'+k)]);
+  const tip = hud.lines.map(l => l.map(s => `<span style="color:${hex(s.c)}">${s.t.replace(/</g,'&lt;')}</span>`).join('')).join('\n');
+  const series = item.kind==='bazaar' ? `bz:${k}:buy` : (item.forecast && item.forecast.series) || `ah:${k}`;
+  const hist = await j('/history/' + encodeURIComponent(series) + '?hours=168');
+  const fc = item.kind==='bazaar' ? item.forecast.buy : item.forecast;
+  $('#view').innerHTML = `<div class="tip"><span style="color:#fff">${k}</span>\n${tip}</div>
+    <div>Hourly history (${series}), last 7 days</div>${chart(hist, fc)}
+    <details><summary>raw JSON</summary><pre>${JSON.stringify(item, null, 2)}</pre></details>`;
+}
+</script></body></html>

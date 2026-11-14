@@ -1,0 +1,19 @@
+{
+  "db_path": "data/market.sqlite3",
+  "bazaar_interval": 60,
+  "ended_interval": 60,
+  "active_ah_interval": 300,
+  "keep_raw_bazaar_days": 2,
+  "keep_sales_days": 90,
+  "server_port": 8765,
+  "history_hours": 336,
+  "eval_hours": 72,
+  "min_hours_for_forecast": 12,
+  "range_level": 0.8,
+  "tracking_signal_limit": 4.0,
+  "publish_interval": 3600,
+  "publish_repo": "https://github.com/sebastianSEEB/Minecraft-Forecast.git",
+  "publish_top_bazaar": 250,
+  "publish_top_auction": 250,
+  "publish_label": "Sebastian's PC collector"
+}

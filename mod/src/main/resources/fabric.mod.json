@@ -1,0 +1,18 @@
+{
+	"schemaVersion": 1,
+	"id": "skyprice",
+	"version": "${version}",
+	"name": "SkyPrice HUD",
+	"description": "Adds 24h average / high / low and a forecast to Hypixel SkyBlock item tooltips, read from your own local price database.",
+	"authors": ["Sebastian Kleven"],
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.sebastian.skyprice.SkyPriceClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.10",
+		"minecraft": "~${mc}",
+		"fabric-api": "*"
+	}
+}
