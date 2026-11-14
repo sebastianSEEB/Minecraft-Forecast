@@ -39,8 +39,8 @@ public final class SkyPriceClient implements ClientModInitializer {
 			Verdict.Result r = resultFor(key, listing);
 			if (r == null || r.lines().isEmpty()) return;
 			if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
-			if (r.suggestedBid() != null && r.currentBid() != null && r.maxBid() != null)
-				BidHelper.hovered(key, r.suggestedBid(), r.currentBid(), r.maxBid(), r.lowestBin());
+			if (r.nextBid() != null && r.bidCap() != null && r.maxBid() != null)
+				BidHelper.hovered(key, r.suggestedBid(), r.nextBid(), r.bidCap(), r.maxBid(), r.lowestBin());
 			lines.add(Component.empty());
 			lines.addAll(r.lines());
 		});

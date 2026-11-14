@@ -142,7 +142,8 @@ final class HudFormatter {
 		}
 		if (cfg.showSeasons) seasons(out, d);
 		return verdict == null ? new Verdict.Result(out, banner)
-				: new Verdict.Result(out, banner, verdict.suggestedBid(), verdict.currentBid(), verdict.maxBid(), verdict.lowestBin());
+				: new Verdict.Result(out, banner, verdict.suggestedBid(), verdict.currentBid(), verdict.maxBid(), verdict.lowestBin(),
+						verdict.nextBid(), verdict.bidCap());
 	}
 
 	private static void history(List<Component> out, JsonObject stats, String side) {

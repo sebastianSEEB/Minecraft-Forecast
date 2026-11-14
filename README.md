@@ -53,9 +53,10 @@ is never shown for items with fewer than 3 sales in 24 h, or when manipulation i
 
 **Bidding helper and watch list** (manual bidding; the mod never clicks or bids for you, because automated
 bidding is a macro under Hypixel's rules):
-* auction tooltips show a **target bid** = `bidPercentOfLowestBin` (default 75%) of the lowest BIN, green if it's under
-  your max profitable bid
-* **click an auction** and the target bid is copied to your clipboard. Paste it into the bid sign (Ctrl+V) and confirm.
+* auction tooltips show the **bid to enter**: the lowest valid bid. That's the starting bid, or the current bid + 2.5%
+  (Hypixel's minimum), rounded up. It's capped at `maxBidPercentOfLowestBin` (default **70%**) of the lowest BIN. If the next
+  valid bid is already above the cap, the tooltip says to skip it.
+* **click an auction** and that bid is copied to your clipboard. Paste it into the bid sign (Ctrl+V) and confirm it yourself.
 * the auction then goes on your **watch list**. Its lowest BIN is re-checked every 30 s and you get a chat message when it
   moves ≥ 2%, including a red warning if your bid is no longer profitable. Commands: `/skyprice watching`,
   `/skyprice unwatch <item>`, `/skyprice unwatchall`. Entries expire after 48 h.

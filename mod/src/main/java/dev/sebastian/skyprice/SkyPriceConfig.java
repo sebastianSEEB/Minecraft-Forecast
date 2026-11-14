@@ -29,7 +29,7 @@ final class SkyPriceConfig {
 	boolean showVerdict = true;      // "GOOD BUY / FAIR PRICE / OVERPRICED" line under the average
 	boolean showFlipBanner = true;   // bold "PROFIT FLIP / WORTH BIDDING" line right under the item name
 	double minFlipProfitPercent = 5; // profit after AH fees needed before an item is marked as a flip
-	double bidPercentOfLowestBin = 75; // target bid shown on auctions (and copied when you click one)
+	double maxBidPercentOfLowestBin = 70; // preset bid = lowest valid bid (current + 2.5 %), never above this % of lowest BIN
 	boolean copyBidOnClick = true;
 	boolean watchBids = true;         // auctions you click (bid copied) go on a watch list
 	int watchRecheckSeconds = 30;     // how often the watch list re-checks lowest BIN

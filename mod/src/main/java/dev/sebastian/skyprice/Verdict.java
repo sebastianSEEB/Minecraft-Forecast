@@ -36,10 +36,22 @@ final class Verdict {
 	record Listing(double price, boolean bin, boolean bids) {}
 
 	/** suggestedBid / currentBid / maxBid are set for bid auctions (used by BidHelper), otherwise null. */
-	record Result(List<Component> lines, Component banner, Double suggestedBid, Double currentBid, Double maxBid, Double lowestBin) {
+	/**
+	 * suggestedBid = bid to type in (null when it would exceed the cap); nextBid = lowest valid bid;
+	 * bidCap = max bid (% of lowest BIN). Bid fields are only set for bid auctions.
+	 */
+	record Result(List<Component> lines, Component banner, Double suggestedBid, Double currentBid, Double maxBid, Double lowestBin,
+			Double nextBid, Double bidCap) {
 		Result(List<Component> lines, Component banner) {
-			this(lines, banner, null, null, null, null);
+			this(lines, banner, null, null, null, null, null, null);
 		}
+	}
+
+	/** Hypixel: the first bid must meet the starting bid; later bids must be at least 2.5 % above the current one. */
+	static double nextValidBid(Listing l) {
+		double min = l.bids() ? l.price() * 1.025 : l.price();
+		double step = min >= 1e6 ? 1000 : min >= 1e4 ? 100 : 1;       // round up to a clean number
+		return Math.ceil(min / step) * step;
 	}
 
 	private Verdict() {}
@@ -100,7 +112,7 @@ final class Verdict {
 	static Result evaluate(JsonObject d, Listing listing, Double liveBuy, SkyPriceConfig cfg) {
 		List<Component> out = new ArrayList<>();
 		Component banner = null;
-		Double suggestedBid = null, maxBidOut = null;
+		Double suggestedBid = null, maxBidOut = null, nextBidOut = null, bidCapOut = null;
 		boolean bz = "bz".equals(d.get("kind").getAsString());
 		JsonObject s = HudFormatter.obj(d, "summary");
 		JsonObject market = HudFormatter.obj(d, "market");
@@ -180,14 +192,32 @@ final class Verdict {
 					out.add(HudFormatter.line("    ✘ already bid past the profitable price", HudFormatter.RED));
 				}
 				maxBidOut = maxBid;
+				// preset bid: the lowest valid bid (starting bid, or current bid + 2.5 %), capped at X % of lowest BIN
 				Double low = lowest != null ? lowest : HudFormatter.num(s, "lbin");
+				nextBidOut = nextValidBid(listing);
 				if (low != null) {
-					suggestedBid = low * cfg.bidPercentOfLowestBin / 100.0;
-					boolean ok = suggestedBid <= maxBid;
-					boolean possible = suggestedBid > listing.price();
-					out.add(HudFormatter.line(String.format(Locale.ROOT, "    target bid (%.0f%% of lowest BIN): ", cfg.bidPercentOfLowestBin), HudFormatter.GRAY,
-							HudFormatter.fmt(suggestedBid), possible ? (ok ? 0x55FF55 : HudFormatter.YELLOW) : HudFormatter.DARK,
-							!possible ? "  (current bid is already higher)" : cfg.copyBidOnClick ? "  click to copy" : "", HudFormatter.DARK));
+					bidCapOut = low * cfg.maxBidPercentOfLowestBin / 100.0;
+					boolean fits = nextBidOut <= bidCapOut;
+					if (fits) suggestedBid = nextBidOut;
+					String capTxt = String.format(Locale.ROOT, "%.0f%% of lowest BIN = %s", cfg.maxBidPercentOfLowestBin, HudFormatter.fmt(bidCapOut));
+					if (fits) {
+						out.add(HudFormatter.line("    bid to enter: ", HudFormatter.GRAY, HudFormatter.fmt(nextBidOut),
+								nextBidOut <= maxBid ? 0x55FF55 : HudFormatter.YELLOW,
+								"  (next valid bid; cap " + capTxt + ")" + (cfg.copyBidOnClick ? "  click to copy" : ""), HudFormatter.DARK));
+					} else {
+						out.add(HudFormatter.line("    ✘ skip: next valid bid " + HudFormatter.fmt(nextBidOut) + " is above your cap (" + capTxt + ")",
+								HudFormatter.RED));
+					}
+				}
+				// banner / yellow border only when there's a bid to enter that's within the cap and still profitable
+				if (banner != null) {
+					if (suggestedBid == null || suggestedBid > maxBid) {
+						banner = null;
+					} else {
+						double limit = bidCapOut != null ? Math.min(bidCapOut, maxBid) : maxBid;
+						banner = bold("✔ WORTH BIDDING: bid " + HudFormatter.fmt(suggestedBid) + " (never above " + HudFormatter.fmt(limit)
+								+ ") → +" + HudFormatter.fmt(net - suggestedBid) + " profit", 0x55FF55);
+					}
 				}
 			} else {
 				double profit = net - price;
@@ -245,6 +275,7 @@ final class Verdict {
 		}
 		Double lowestOut = HudFormatter.num(HudFormatter.obj(d, "market", "listed"), "lowest");
 		if (lowestOut == null) lowestOut = HudFormatter.num(s, "lbin");
-		return new Result(out, banner, suggestedBid, listing != null && !listing.bin() ? listing.price() : null, maxBidOut, lowestOut);
+		return new Result(out, banner, suggestedBid, listing != null && !listing.bin() ? listing.price() : null, maxBidOut, lowestOut,
+				nextBidOut, bidCapOut);
 	}
 }
