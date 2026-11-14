@@ -4,9 +4,10 @@ import java.util.List;
 import java.util.Locale;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
@@ -40,7 +41,8 @@ public final class SkyPriceClient implements ClientModInitializer {
 		});
 
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
-				ClientCommandManager.literal("skyprice")
+				// Brigadier builders directly: Fabric renamed ClientCommandManager -> ClientCommands in 26.x
+				LiteralArgumentBuilder.<FabricClientCommandSource>literal("skyprice")
 						.executes(ctx -> {
 							var player = Minecraft.getInstance().player;
 							String key = player == null ? null : ItemKeys.keyFor(player.getMainHandItem());
@@ -51,7 +53,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 							lookup(ctx.getSource(), key);
 							return 1;
 						})
-						.then(ClientCommandManager.argument("item", StringArgumentType.greedyString())
+						.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("item", StringArgumentType.greedyString())
 								.executes(ctx -> {
 									String q = StringArgumentType.getString(ctx, "item").trim();
 									lookup(ctx.getSource(), q.toUpperCase(Locale.ROOT).replace(' ', '_'));
