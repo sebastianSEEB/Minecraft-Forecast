@@ -34,7 +34,8 @@ public final class SkyPriceClient implements ClientModInitializer {
 			if (!config.enabled) return;
 			String key = ItemKeys.keyFor(stack);
 			if (key == null) return;                       // not a SkyBlock item
-			List<Component> extra = linesFor(key);
+			Double listing = config.showVerdict ? Verdict.listingPrice(lines, stack.getCount()) : null;
+			List<Component> extra = linesFor(key, listing);
 			if (extra.isEmpty()) return;
 			lines.add(Component.empty());
 			lines.addAll(extra);
@@ -61,13 +62,13 @@ public final class SkyPriceClient implements ClientModInitializer {
 								}))));
 	}
 
-	private static List<Component> linesFor(String key) {
+	private static List<Component> linesFor(String key, Double listing) {
 		DataClient.Doc d = data.doc(key);
 		if (d == null) return LOADING;
 		if (d.json() == null) return List.of();       // item never traded / not published
 		try {
 			DataClient.Live live = "bz".equals(d.json().get("kind").getAsString()) ? data.live(key) : null;
-			return HudFormatter.tooltip(d.json(), live, config);
+			return HudFormatter.tooltip(d.json(), live, config, listing);
 		} catch (RuntimeException e) {
 			return List.of();
 		}

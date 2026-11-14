@@ -35,6 +35,15 @@ Bazaar items show buy/sell average, high and low, plus approximate daily volume.
    forecasts and seasonality for every item (updated hourly by the collector)
 3. live bazaar buy/sell prices straight from the public Hypixel API (refreshed every minute)
 
+**Buy verdict** (under the 24h average line): hover over any auction listing and the mod reads its
+"Buy it now" or bid price (per item for stacks). It compares that price with the item's fair value: the median sale price
+over the last 72 h, with the 7-day average as fallback. You get one of **GREAT BUY**, **GOOD BUY**, **FAIR PRICE**,
+**OVERPRICED** or **BAD BUY**, plus:
+* the flip profit after AH fees (1/2/2.5% listing fee and 1% claim tax above 1M)
+* a warning when the item rarely sells
+* a "wait" hint when the forecast or a confirmed seasonal dip says it will get cheaper within 24 h
+Bazaar items are judged by the live buy price against the 7-day average. Turn it off with `"showVerdict": false`.
+
 In-game you get the tooltip lines plus **`/skyprice`** (held item) or **`/skyprice <item>`** (e.g. `/skyprice hyperion`),
 which prints the full summary, the last 14 daily prices and every tested seasonal cycle in chat.
 Settings: `.minecraft/config/skyprice.json` (sources, refresh times, which lines to show).

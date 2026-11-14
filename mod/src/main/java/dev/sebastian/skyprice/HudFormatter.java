@@ -90,6 +90,11 @@ final class HudFormatter {
 
 	// ------------------------------------------------------------------ tooltip
 	static List<Component> tooltip(JsonObject d, DataClient.Live live, SkyPriceConfig cfg) {
+		return tooltip(d, live, cfg, null);
+	}
+
+	/** @param listing price per item of the auction listing being hovered, or null */
+	static List<Component> tooltip(JsonObject d, DataClient.Live live, SkyPriceConfig cfg, Double listing) {
 		List<Component> out = new ArrayList<>();
 		JsonObject s = obj(d, "summary");
 		boolean bz = "bz".equals(d.get("kind").getAsString());
@@ -104,6 +109,7 @@ final class HudFormatter {
 			JsonObject b24 = obj(stats, "24h", "buy");
 			if (b24 != null) out.add(line(" 24h  avg ", GRAY, fmt(num(b24, "avg")), WHITE, "  high ", GRAY, fmt(num(b24, "hi")), GREEN,
 					"  low ", GRAY, fmt(num(b24, "lo")), RED));
+			if (cfg.showVerdict) out.addAll(Verdict.lines(d, null, buy));
 			if (cfg.showHistory) history(out, stats, "buy");
 			if (cfg.showForecast) forecast(out, obj(d, "forecast", "buy"), buy);
 		} else {
@@ -119,6 +125,7 @@ final class HudFormatter {
 			} else {
 				out.add(line(" No sales in the last 24h", GRAY));
 			}
+			if (cfg.showVerdict) out.addAll(Verdict.lines(d, listing, null));
 			if (cfg.showHistory) history(out, stats, obj(stats, "all", "sold") != null ? "sold" : "lbin");
 			if (cfg.showForecast) forecast(out, obj(d, "forecast", "main"), lbin != null ? lbin : num(s, "avg"));
 		}

@@ -26,6 +26,7 @@ final class SkyPriceConfig {
 	int publishedRefreshSeconds = 600;
 	int liveBazaarRefreshSeconds = 60;
 
+	boolean showVerdict = true;      // "GOOD BUY / FAIR PRICE / OVERPRICED" line under the average
 	boolean showHistory = true;      // 7d / 30d / all-time lines
 	boolean showForecast = true;
 	boolean showSeasons = true;
