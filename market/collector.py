@@ -233,6 +233,54 @@ class ActiveAHJob(Job):
         log.info("active auctions: %d pages, %d distinct BIN items", pages, len(listings))
 
 
+class QuickBinJob(Job):
+    """Keeps lowest BIN fresh between full scans (every 30 s by default).
+
+    The auctions endpoint is sorted newest-first, so page 0 holds every listing created since the last
+    check: a cheaper BIN there replaces the lowest BIN at once. When the cheapest BIN sells
+    (seen in auctions_ended), the 2nd-cheapest takes its place until the next full scan.
+    """
+    name_ = "quick_bin"
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.interval = self.cfg.quick_bin_interval
+
+    def tick(self, c):
+        data = self.api.auctions_page(0)
+        ts = int(data.get("lastUpdated") or time.time() * 1000)
+        cheaper: dict[str, float] = {}
+        for a in data.get("auctions", []):
+            if not a.get("bin") or a.get("claimed"):
+                continue
+            try:
+                k, _, cnt = key_and_count(a["item_bytes"])
+            except Exception:
+                continue
+            if not k:
+                continue
+            unit = float(a.get("starting_bid") or 0) / cnt
+            if unit > 0 and unit < cheaper.get(k, float("inf")):
+                cheaper[k] = unit
+        sold_cheapest = []
+        recent = c.execute("SELECT item_key, MIN(unit_price) p FROM ah_sale WHERE bin=1 AND ts>? GROUP BY item_key",
+                           (ts - 2 * self.interval * 1000,)).fetchall()
+        updated = 0
+        with self.db.write_lock, c:
+            for k, unit in cheaper.items():
+                cur = c.execute("UPDATE lbin_now SET second_bin=lowest_bin, lowest_bin=?, ts=? WHERE item_key=? AND lowest_bin>?",
+                                (unit, ts, k, unit))
+                updated += cur.rowcount
+            for r in recent:                      # the cheapest listing just sold -> next one is the new lowest
+                cur = c.execute("""UPDATE lbin_now SET lowest_bin=COALESCE(second_bin, lowest_bin), second_bin=NULL, ts=?,
+                                   listings=MAX(listings-1, 0) WHERE item_key=? AND ABS(lowest_bin-?) < lowest_bin*0.001""",
+                                (ts, r["item_key"], r["p"]))
+                if cur.rowcount:
+                    sold_cheapest.append(r["item_key"])
+            Database.set_meta(c, "quick_bin_last", ts)
+        _status(self.name_, last_ts=ts, cheaper_listings=updated, cheapest_sold=len(sold_cheapest))
+
+
 class MaintenanceJob(Job):
     name_ = "maintenance"
     interval = 3600
@@ -274,6 +322,8 @@ def start_all(cfg: Config, db: Database, stop: threading.Event) -> list[Job]:
     jobs = [BazaarJob(cfg, db, api, stop), EndedJob(cfg, db, api, stop), MaintenanceJob(cfg, db, api, stop)]
     if cfg.active_ah_interval > 0:
         jobs.append(ActiveAHJob(cfg, db, api, stop))
+    if cfg.quick_bin_interval > 0:
+        jobs.append(QuickBinJob(cfg, db, api, stop))
     if cfg.publish_interval > 0:
         jobs.append(PublishJob(cfg, db, api, stop))
     for j in jobs:

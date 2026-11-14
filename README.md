@@ -51,6 +51,17 @@ Bazaar items are judged by the live buy price against the 7-day average. Turn it
 Resale is capped just under the cheapest competing BIN, because you can't sell above the competition. The banner
 is never shown for items with fewer than 3 sales in 24 h, or when manipulation is flagged.
 
+**Bidding helper and watch list** (manual bidding; the mod never clicks or bids for you, because automated
+bidding is a macro under Hypixel's rules):
+* auction tooltips show a **target bid** = `bidPercentOfLowestBin` (default 75%) of the lowest BIN, green if it's under
+  your max profitable bid
+* **click an auction** and the target bid is copied to your clipboard. Paste it into the bid sign (Ctrl+V) and confirm.
+* the auction then goes on your **watch list**. Its lowest BIN is re-checked every 30 s and you get a chat message when it
+  moves ≥ 2%, including a red warning if your bid is no longer profitable. Commands: `/skyprice watching`,
+  `/skyprice unwatch <item>`, `/skyprice unwatchall`. Entries expire after 48 h.
+* fresh lowest BIN comes from your PC collector, which re-checks every 30 s: the newest listings, plus BINs that just sold. If
+  the collector isn't running, it falls back to the hourly published data.
+
 **Fair value and manipulation checks** (`market/marketcheck.py`, also shown on the dashboard as "Market check"):
 * fair value = median of three estimates: clean sold median (72 h), cheapest-25% of current listings, and 7-day average
 * **wash trading**: the same seller→buyer pair trading repeatedly. These sales are flagged and left out of fair value.
@@ -145,7 +156,7 @@ showing time to the next peak and dip, the expected % move, swing and confidence
 profile.
 
 ## Local server endpoints
-`/itemdata/<KEY>` item document (what the mod reads) · `/hud/<KEY>` tooltip lines · `/item/<KEY>` stats JSON (incl. every horizon's model leaderboard) ·
+`/itemdata/<KEY>` item document (what the mod reads) · `/lbin?keys=A,B` fresh lowest BIN (watch list) · `/hud/<KEY>` tooltip lines · `/item/<KEY>` stats JSON (incl. every horizon's model leaderboard) ·
 `/history/<series>?hours=168` hourly bars (`bz:<ID>:buy`, `bz:<ID>:sell`, `ah:<KEY>`, `lbin:<KEY>`) ·
 `/search?q=` · `/health`
 
@@ -153,6 +164,8 @@ profile.
 ```
 python tests/test_forecast.py     # formulas vs. lecture examples
 python tests/test_seasonality.py  # cycle detection, false-positive rate, SkyBlock calendar
+python tests/test_market.py       # fair value + manipulation scenarios
+python tests/test_quickbin.py     # 30-second lowest-BIN re-check
 python tests/test_e2e.py          # fake Hypixel API → collector → DB → server → HUD
 python tests/fake_hypixel.py      # run the fake API yourself (set api_base in config.json)
 ```

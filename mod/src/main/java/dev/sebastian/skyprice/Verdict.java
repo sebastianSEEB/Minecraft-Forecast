@@ -35,7 +35,12 @@ final class Verdict {
 	/** price per item; bin = Buy It Now; bids = an auction that already has bids */
 	record Listing(double price, boolean bin, boolean bids) {}
 
-	record Result(List<Component> lines, Component banner) {}
+	/** suggestedBid / currentBid / maxBid are set for bid auctions (used by BidHelper), otherwise null. */
+	record Result(List<Component> lines, Component banner, Double suggestedBid, Double currentBid, Double maxBid, Double lowestBin) {
+		Result(List<Component> lines, Component banner) {
+			this(lines, banner, null, null, null, null);
+		}
+	}
 
 	private Verdict() {}
 
@@ -95,6 +100,7 @@ final class Verdict {
 	static Result evaluate(JsonObject d, Listing listing, Double liveBuy, SkyPriceConfig cfg) {
 		List<Component> out = new ArrayList<>();
 		Component banner = null;
+		Double suggestedBid = null, maxBidOut = null;
 		boolean bz = "bz".equals(d.get("kind").getAsString());
 		JsonObject s = HudFormatter.obj(d, "summary");
 		JsonObject market = HudFormatter.obj(d, "market");
@@ -173,6 +179,16 @@ final class Verdict {
 				} else if (!room) {
 					out.add(HudFormatter.line("    ✘ already bid past the profitable price", HudFormatter.RED));
 				}
+				maxBidOut = maxBid;
+				Double low = lowest != null ? lowest : HudFormatter.num(s, "lbin");
+				if (low != null) {
+					suggestedBid = low * cfg.bidPercentOfLowestBin / 100.0;
+					boolean ok = suggestedBid <= maxBid;
+					boolean possible = suggestedBid > listing.price();
+					out.add(HudFormatter.line(String.format(Locale.ROOT, "    target bid (%.0f%% of lowest BIN): ", cfg.bidPercentOfLowestBin), HudFormatter.GRAY,
+							HudFormatter.fmt(suggestedBid), possible ? (ok ? 0x55FF55 : HudFormatter.YELLOW) : HudFormatter.DARK,
+							!possible ? "  (current bid is already higher)" : cfg.copyBidOnClick ? "  click to copy" : "", HudFormatter.DARK));
+				}
 			} else {
 				double profit = net - price;
 				double ppct = profit / price;
@@ -227,6 +243,8 @@ final class Verdict {
 				}
 			}
 		}
-		return new Result(out, banner);
+		Double lowestOut = HudFormatter.num(HudFormatter.obj(d, "market", "listed"), "lowest");
+		if (lowestOut == null) lowestOut = HudFormatter.num(s, "lbin");
+		return new Result(out, banner, suggestedBid, listing != null && !listing.bin() ? listing.price() : null, maxBidOut, lowestOut);
 	}
 }

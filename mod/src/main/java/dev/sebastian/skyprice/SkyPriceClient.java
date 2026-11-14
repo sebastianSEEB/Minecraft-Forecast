@@ -38,13 +38,41 @@ public final class SkyPriceClient implements ClientModInitializer {
 			Verdict.Result r = resultFor(key, listing);
 			if (r == null || r.lines().isEmpty()) return;
 			if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
+			if (r.suggestedBid() != null && r.currentBid() != null && r.maxBid() != null)
+				BidHelper.hovered(key, r.suggestedBid(), r.currentBid(), r.maxBid(), r.lowestBin());
 			lines.add(Component.empty());
 			lines.addAll(r.lines());
 		});
 
+		BidHelper.register(config);
+		Watch.start(config, data);
+
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
 				// Brigadier builders directly: Fabric renamed ClientCommandManager -> ClientCommands in 26.x
 				LiteralArgumentBuilder.<FabricClientCommandSource>literal("skyprice")
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("watching").executes(ctx -> {
+							var list = Watch.list();
+							if (list.isEmpty()) ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Not watching any auctions."));
+							for (Watch.Entry e : list) {
+								ctx.getSource().sendFeedback(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, e.key, HudFormatter.WHITE,
+										"  your bid " + HudFormatter.fmt(e.myBid) + "  lowest BIN " + HudFormatter.fmt(e.lastLowest)
+												+ "  max profitable " + HudFormatter.fmt(e.maxProfitable), HudFormatter.GRAY));
+							}
+							return 1;
+						}))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("unwatch")
+								.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("item", StringArgumentType.greedyString())
+										.executes(ctx -> {
+											String k = StringArgumentType.getString(ctx, "item").trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+											ctx.getSource().sendFeedback(Component.literal(Watch.remove(k)
+													? "[SkyPrice] Stopped watching " + k : "[SkyPrice] " + k + " wasn't on the watch list"));
+											return 1;
+										})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("unwatchall").executes(ctx -> {
+							Watch.clear();
+							ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Watch list cleared."));
+							return 1;
+						}))
 						.executes(ctx -> {
 							var player = Minecraft.getInstance().player;
 							String key = player == null ? null : ItemKeys.keyFor(player.getMainHandItem());

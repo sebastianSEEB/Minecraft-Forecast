@@ -72,6 +72,10 @@ hp = [r["hours_to_peak"] for r in seas["rows"]]
 assert hp == sorted(hp)
 doc = get("/itemdata/BOOSTER_COOKIE")
 assert doc["stats"]["30d"]["buy"]["avg"] and len(doc["daily"]["buy"]) >= 30, doc["stats"]
+lb = get("/lbin?keys=HYPERION,ASPECT_OF_THE_END,NOPE")
+print("LBIN", lb, "quick:", STATUS.get("quick_bin"))
+assert "HYPERION" in lb and lb["HYPERION"]["lowest"] > 0 and "NOPE" not in lb
+assert "quick_bin" in STATUS and "error" not in STATUS["quick_bin"], STATUS.get("quick_bin")
 hyp = get("/itemdata/HYPERION")
 print("MARKET HYPERION", {k: hyp["market"][k] for k in ("fair", "resale", "risk", "flags")}, hyp["market"]["listed"])
 assert hyp["market"]["listed"]["count"] > 50 and hyp["market"]["fair"] > 9e8

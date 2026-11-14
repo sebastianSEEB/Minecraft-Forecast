@@ -1,0 +1,162 @@
+package dev.sebastian.skyprice;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.reflect.TypeToken;
+
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+
+/**
+ * Watch list for auctions you bid on: the lowest BIN of each watched item is re-checked every
+ * {@code watchRecheckSeconds} (fresh from your PC collector, which re-checks the AH every 30 s;
+ * otherwise from the hourly published data) and you get a chat message when it moves enough to
+ * change whether your bid is still profitable. Items are added when you click an auction
+ * (bid copied), and expire after {@code watchHours}.
+ */
+final class Watch {
+	static final class Entry {
+		String key;
+		double myBid;
+		double maxProfitable;
+		long added;
+		Double lastLowest;
+	}
+
+	private static final Map<String, Entry> entries = new ConcurrentHashMap<>();
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	private static Path file;
+	private static SkyPriceConfig cfg;
+	private static DataClient data;
+
+	private Watch() {}
+
+	static void start(SkyPriceConfig config, DataClient client) {
+		cfg = config;
+		data = client;
+		file = FabricLoader.getInstance().getConfigDir().resolve("skyprice-watch.json");
+		try {
+			if (Files.exists(file)) {
+				List<Entry> list = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), new TypeToken<List<Entry>>() {}.getType());
+				if (list != null) for (Entry e : list) if (e != null && e.key != null) entries.put(e.key, e);
+			}
+		} catch (Exception e) {
+			System.err.println("[SkyPrice] could not read watch list: " + e);
+		}
+		ScheduledExecutorService ex = Executors.newSingleThreadScheduledExecutor(r -> {
+			Thread t = new Thread(r, "SkyPrice-watch");
+			t.setDaemon(true);
+			return t;
+		});
+		int every = Math.max(10, cfg.watchRecheckSeconds);
+		ex.scheduleWithFixedDelay(Watch::recheck, every, every, TimeUnit.SECONDS);
+	}
+
+	static void add(String key, double myBid, double maxProfitable, Double lowestNow) {
+		Entry e = new Entry();
+		e.key = key;
+		e.myBid = myBid;
+		e.maxProfitable = maxProfitable;
+		e.added = System.currentTimeMillis();
+		e.lastLowest = lowestNow;
+		entries.put(key, e);
+		save();
+	}
+
+	static boolean remove(String key) {
+		boolean had = entries.remove(key) != null;
+		save();
+		return had;
+	}
+
+	static void clear() {
+		entries.clear();
+		save();
+	}
+
+	static List<Entry> list() {
+		return new ArrayList<>(entries.values());
+	}
+
+	private static void save() {
+		try {
+			if (file != null) Files.writeString(file, GSON.toJson(new ArrayList<>(entries.values())), StandardCharsets.UTF_8);
+		} catch (Exception ignored) {
+			// not critical
+		}
+	}
+
+	private static void say(Component c) {
+		Minecraft mc = Minecraft.getInstance();
+		mc.execute(() -> mc.gui.getChat().addMessage(c));
+	}
+
+	private static void recheck() {
+		try {
+			long now = System.currentTimeMillis();
+			entries.values().removeIf(e -> now - e.added > cfg.watchHours * 3_600_000L);
+			if (entries.isEmpty()) return;
+			List<String> keys = new ArrayList<>(entries.keySet());
+			JsonObject fresh = data.localLbin(keys).get(10, TimeUnit.SECONDS);   // null if the PC collector isn't running
+			for (String k : keys) {
+				Double lowest = null;
+				if (fresh != null && fresh.has(k)) {
+					lowest = HudFormatter.num(fresh.getAsJsonObject(k), "lowest");
+				} else {
+					DataClient.Doc d = data.docAsync(k).get(10, TimeUnit.SECONDS);
+					if (d != null && d.json() != null) {
+						JsonObject li = HudFormatter.obj(d.json(), "market", "listed");
+						lowest = li != null ? HudFormatter.num(li, "lowest") : HudFormatter.num(HudFormatter.obj(d.json(), "summary"), "lbin");
+					}
+				}
+				Entry e = entries.get(k);
+				if (e == null || lowest == null) continue;
+				check(e, lowest);
+			}
+			save();
+		} catch (Exception ignored) {
+			// try again next round
+		}
+	}
+
+	private static void check(Entry e, double lowest) {
+		Double prev = e.lastLowest;
+		e.lastLowest = lowest;
+		if (prev == null || prev <= 0) return;
+		double change = lowest / prev - 1;
+		if (Math.abs(change) < 0.02) return;                       // ignore small moves
+		double minPct = Math.max(0, cfg.minFlipProfitPercent) / 100.0;
+		double maxNow = Math.min(e.maxProfitable * Math.max(1, lowest / prev),
+				Verdict.netAfterFees(lowest * 0.99) / (1 + minPct));
+		String head = "[SkyPrice] " + e.key + ": ";
+		if (maxNow < e.myBid) {
+			say(HudFormatter.line(head, HudFormatter.GOLD,
+					String.format(Locale.ROOT, "⚠ lowest BIN dropped to %s (was %s). Your bid %s is no longer profitable "
+							+ "(max now %s). Don't raise it.", HudFormatter.fmt(lowest), HudFormatter.fmt(prev),
+							HudFormatter.fmt(e.myBid), HudFormatter.fmt(maxNow)), HudFormatter.RED));
+		} else if (change < 0) {
+			say(HudFormatter.line(head, HudFormatter.GOLD,
+					String.format(Locale.ROOT, "↓ lowest BIN %s (was %s, %.1f%%). Still profitable up to %s.",
+							HudFormatter.fmt(lowest), HudFormatter.fmt(prev), change * 100, HudFormatter.fmt(maxNow)), HudFormatter.YELLOW));
+		} else {
+			say(HudFormatter.line(head, HudFormatter.GOLD,
+					String.format(Locale.ROOT, "↑ lowest BIN %s (was %s, +%.1f%%). More margin: max profitable bid now %s.",
+							HudFormatter.fmt(lowest), HudFormatter.fmt(prev), change * 100, HudFormatter.fmt(maxNow)), 0x55FF55));
+		}
+		e.maxProfitable = Math.max(0, maxNow);
+	}
+}

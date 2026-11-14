@@ -1,6 +1,7 @@
 """Tiny client for the public Hypixel SkyBlock endpoints (stdlib only)."""
 from __future__ import annotations
 
+import gzip
 import json
 import time
 import urllib.error
@@ -18,9 +19,12 @@ class HypixelClient:
         last = None
         for attempt in range(retries):
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": self.ua, "Accept-Encoding": "identity"})
+                req = urllib.request.Request(url, headers={"User-Agent": self.ua, "Accept-Encoding": "gzip"})
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
-                    data = json.loads(r.read().decode("utf-8"))
+                    raw = r.read()
+                    if r.headers.get("Content-Encoding", "").lower() == "gzip" or raw[:2] == b"\x1f\x8b":
+                        raw = gzip.decompress(raw)
+                    data = json.loads(raw.decode("utf-8"))
                 if not data.get("success", False):
                     raise RuntimeError(f"API returned success=false for {path}: {data.get('cause')}")
                 return data

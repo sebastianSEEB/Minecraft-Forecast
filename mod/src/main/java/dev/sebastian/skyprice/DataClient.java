@@ -70,6 +70,14 @@ final class DataClient {
 		});
 	}
 
+	/** Fresh lowest BIN for a few items from the PC collector (re-checked every 30 s). Null if it isn't running. */
+	CompletableFuture<JsonObject> localLbin(java.util.List<String> keys) {
+		if (cfg.localServer == null || cfg.localServer.isBlank() || keys.isEmpty())
+			return CompletableFuture.completedFuture(null);
+		String q = URLEncoder.encode(String.join(",", keys), StandardCharsets.UTF_8);
+		return getJson(cfg.localServer + "/lbin?keys=" + q, 3).handle((j, e) -> e != null ? null : j);
+	}
+
 	boolean isLoading(String key) {
 		return inFlight.contains(key);
 	}

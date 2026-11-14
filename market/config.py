@@ -19,6 +19,7 @@ class Config:
     bazaar_interval: int = 60          # full bazaar snapshot
     ended_interval: int = 60           # auctions_ended covers the last ~60 s, so keep this <= 60
     active_ah_interval: int = 300      # full active-auction scan for lowest BIN (0 = off)
+    quick_bin_interval: int = 30       # re-check lowest BIN from the newest listings + just-sold BINs (0 = off)
 
     # Retention (days). Hourly bars are kept forever; they are what forecasts use.
     keep_raw_bazaar_days: float = 2    # change-only raw snapshots (0 = don't store raw)

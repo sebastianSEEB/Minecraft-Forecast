@@ -97,6 +97,7 @@ final class HudFormatter {
 	static Verdict.Result render(JsonObject d, DataClient.Live live, SkyPriceConfig cfg, Verdict.Listing listing) {
 		List<Component> out = new ArrayList<>();
 		Component banner = null;
+		Verdict.Result verdict = null;
 		JsonObject s = obj(d, "summary");
 		boolean bz = "bz".equals(d.get("kind").getAsString());
 		JsonObject stats = obj(d, "stats");
@@ -134,12 +135,14 @@ final class HudFormatter {
 				Verdict.Result v = Verdict.evaluate(d, listing, null, cfg);
 				out.addAll(v.lines());
 				banner = v.banner();
+				verdict = v;
 			}
 			if (cfg.showHistory) history(out, stats, obj(stats, "all", "sold") != null ? "sold" : "lbin");
 			if (cfg.showForecast) forecast(out, obj(d, "forecast", "main"), lbin != null ? lbin : num(s, "avg"));
 		}
 		if (cfg.showSeasons) seasons(out, d);
-		return new Verdict.Result(out, banner);
+		return verdict == null ? new Verdict.Result(out, banner)
+				: new Verdict.Result(out, banner, verdict.suggestedBid(), verdict.currentBid(), verdict.maxBid(), verdict.lowestBin());
 	}
 
 	private static void history(List<Component> out, JsonObject stats, String side) {
