@@ -46,7 +46,7 @@ final class BidHelper {
 		last = null;
 		Minecraft mc = Minecraft.getInstance();
 		if (h.suggested() <= h.current()) {
-			mc.gui.getChat().addMessage(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD,
+			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD,
 					"Current bid " + HudFormatter.fmt(h.current()) + " is already above your target bid "
 							+ HudFormatter.fmt(h.suggested()) + " for " + h.key() + ": skip it.", HudFormatter.GRAY));
 			return;
@@ -55,14 +55,14 @@ final class BidHelper {
 		mc.keyboardHandler.setClipboard(Long.toString(amount));
 		if (cfg.watchBids) Watch.add(h.key(), amount, h.maxProfitable(), h.lowest());
 		boolean profitable = h.suggested() <= h.maxProfitable();
-		mc.gui.getChat().addMessage(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD,
+		Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD,
 				"Copied bid " + String.format(Locale.ROOT, "%,d", amount) + " for " + h.key() + ". Paste it into the bid sign (Ctrl+V). ",
 				HudFormatter.WHITE,
 				profitable ? "✔ under your max profitable bid " + HudFormatter.fmt(h.maxProfitable())
 						: "⚠ above your max profitable bid " + HudFormatter.fmt(h.maxProfitable()),
 				profitable ? 0x55FF55 : HudFormatter.YELLOW));
 		if (cfg.watchBids) {
-			mc.gui.getChat().addMessage(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD,
+			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD,
 					"Watching " + h.key() + ": lowest BIN re-checked every " + cfg.watchRecheckSeconds + " s for "
 							+ cfg.watchHours + " h (/skyprice watching, /skyprice unwatch <item>).", HudFormatter.GRAY));
 		}

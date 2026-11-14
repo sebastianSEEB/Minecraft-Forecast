@@ -101,8 +101,7 @@ final class Watch {
 	}
 
 	private static void say(Component c) {
-		Minecraft mc = Minecraft.getInstance();
-		mc.execute(() -> mc.gui.getChat().addMessage(c));
+		Chat.say(c);
 	}
 
 	private static void recheck() {
