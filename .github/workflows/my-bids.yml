@@ -1,0 +1,21 @@
+name: My AH bids
+
+on:
+  workflow_dispatch:
+    inputs:
+      player:
+        description: "Minecraft name"
+        default: "SpookyHawk"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scan active auctions for your bids and listings
+        run: python tools/my_bids.py "${{ inputs.player }}" | tee result.txt
+      - name: Summary
+        run: grep -v '^JSON:' result.txt >> $GITHUB_STEP_SUMMARY
