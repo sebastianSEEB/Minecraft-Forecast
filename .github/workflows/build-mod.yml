@@ -16,7 +16,7 @@ jobs:
       matrix:
         include:
           - mc: "1.21.11"
-            java: "21"
+            java: "25"       # Loom 1.19 needs a Java 25 JVM; the jar still targets Java 21
           - mc: "26.1.2"
             java: "25"
     defaults:

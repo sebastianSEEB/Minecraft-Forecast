@@ -30,7 +30,7 @@ Bazaar items show buy/sell average, high and low, plus approximate daily volume.
 3. Playing on 26.1.2 instead? Use the `+mc26.1.2` jar (needs Java 25).
 
 The jars are compiled by GitHub Actions (`.github/workflows/build-mod.yml`) on every change in `mod/`.
-To build one yourself, run `cd mod` then `gradlew.bat build` (needs a Java 21 JDK). See `mod/versions/README.txt` for 26.x.
+To build one yourself, run `cd mod` then `gradlew.bat build` (needs a Java 25 JDK to run the build tool; the 1.21.11 jar still runs on Java 21). See `mod/versions/README.txt` for 26.x.
 
 ## 2. Run the collector on your PC (Python 3.10+, no packages needed)
 
