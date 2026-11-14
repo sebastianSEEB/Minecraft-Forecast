@@ -21,7 +21,7 @@ final class RenderHook {
 
 					@Override
 					public void text(String text, int x, int y, int argb) {
-						graphics.text(Minecraft.getInstance().font, Component.literal(text), x, y, argb, false);
+						graphics.drawString(Minecraft.getInstance().font, Component.literal(text), x, y, argb, false);
 					}
 				}));
 	}
