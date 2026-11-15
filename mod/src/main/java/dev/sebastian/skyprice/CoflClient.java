@@ -60,8 +60,42 @@ final class CoflClient {
 		this.cfg = cfg;
 	}
 
-	/** Full SkyCofl URL for one of our keys + endpoint ("/history/week", "/bin"); pets get ?Rarity=. */
+	/** Pets that level to 200 instead of 100. */
+	private static final java.util.Set<String> MAX_200 = java.util.Set.of("GOLDEN_DRAGON", "JADE_DRAGON", "ROSE_DRAGON");
+
+	/**
+	 * Level range a pet is compared within (SkyCofl's PetLevel filter): max level exactly, then 95–99 %, 90–94 %,
+	 * 80–89 %, 70–79 %, 50–69 %, 30–49 %, 10–29 %, 1–9 % of max. Prices barely move until close to max level, so the
+	 * ranges get narrow near the top.
+	 */
+	static String petRange(int level, int max) {
+		if (level >= max) return String.valueOf(max);
+		int[] cuts = {95, 90, 80, 70, 50, 30, 10};
+		int upper = max - 1;
+		for (int c : cuts) {
+			int lo = (int) Math.ceil(max * c / 100.0);
+			if (level >= lo) return lo + "-" + upper;
+			upper = lo - 1;
+		}
+		return "1-" + upper;
+	}
+
+	/** "PET_TIGER_LEGENDARY" + level 97 → "PET_TIGER_LEGENDARY@95-99" (same rarity, same level range), or null. */
+	static String petLevelKey(String key, int level) {
+		if (key == null || !key.startsWith("PET_") || level <= 0 || key.contains("@")) return null;
+		int us = key.lastIndexOf('_');
+		String type = us > 4 ? key.substring(4, us) : key.substring(4);
+		return key + "@" + petRange(level, MAX_200.contains(type) ? 200 : 100);
+	}
+
+	/** Full SkyCofl URL for one of our keys + endpoint ("/history/week", "/bin"); pets get ?Rarity= (+ &PetLevel= for "@lo-hi"). */
 	static String url(String key, String endpoint) {
+		String levels = null;
+		int at = key.indexOf('@');
+		if (at > 0) {
+			levels = key.substring(at + 1);
+			key = key.substring(0, at);
+		}
 		String tag = key, query = "";
 		if (key.startsWith("PET_")) {
 			int us = key.lastIndexOf('_');
@@ -73,6 +107,7 @@ final class CoflClient {
 				}
 			}
 		}
+		if (levels != null && levels.matches("[0-9]+(-[0-9]+)?")) query += (query.isEmpty() ? "?" : "&") + "PetLevel=" + levels;
 		// no String.format here: encoded ids contain '%' (e.g. %3A), which format() would misread
 		return BASE + URLEncoder.encode(tag, StandardCharsets.UTF_8) + endpoint + query;
 	}

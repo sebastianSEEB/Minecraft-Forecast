@@ -151,6 +151,9 @@ final class HudFormatter {
 			} else if (pro) {
 				out.add(line(" No sales in the last 24h", GRAY));
 			}
+			if (d.has("petLevels"))
+				out.add(line(" Pet priced from Lvl " + str(d, "petLevels") + " sales of this rarity ("
+						+ num(d, "petSold7d").intValue() + " sold in 7 days)", AQUA));
 			if (Market.hasSevereFlag(d))
 				out.add(line(" ⚠ POSSIBLE MANIPULATION: don't flip this (details below)", RED));
 			if (cfg.showVerdict || mine != null) {

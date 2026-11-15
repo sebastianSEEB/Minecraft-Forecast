@@ -39,6 +39,17 @@ final class Highlight {
 		}
 	}
 
+	private static JsonObject petDocOrWarm(String key, int level, long now) {
+		JsonObject d = SkyPriceClient.petDoc(key, level, false);
+		if (d != null) return d;
+		if (now - warmFrom > 20_000) { warmFrom = now; warmed = 0; }
+		if (warmed < 12 && CoflClient.petLevelKey(key, level) != null) {
+			warmed++;
+			return SkyPriceClient.petDoc(key, level, true);
+		}
+		return null;
+	}
+
 	private static long warmFrom;
 	private static int warmed;
 
@@ -207,11 +218,13 @@ final class Highlight {
 			if (Verdict.ownListing(lines, stack.getCount(), SkyPriceClient.playerName()) != null) return new Cached(id, now);
 			Verdict.Listing listing = Verdict.listing(lines, stack.getCount());
 			if (listing == null) return new Cached(id, now);                // not an auction listing
-			JsonObject dj = docOrWarm(key, now);                         // SkyCofl: cached, or a few fetched per page
+			Valuation.Attrs attrs = cfg.valueUpgrades ? Valuation.parse(stack) : null;
+			JsonObject pet = attrs != null && attrs.pet ? petDocOrWarm(key, attrs.petLevel, now) : null;
+			JsonObject dj = pet != null ? pet : docOrWarm(key, now);       // SkyCofl: cached, or a few fetched per page
 			if (dj == null) return new Cached(id, now);
 			boolean manip = Market.hasSevereFlag(dj);
 			if (manip) return new Cached(id, now, true);                 // never a flip border on a manipulated item
-			Valuation.Estimate est = cfg.valueUpgrades ? Valuation.estimate(dj, key, Valuation.parse(stack)) : null;
+			Valuation.Estimate est = pet == null && attrs != null ? Valuation.estimate(dj, key, attrs) : null;
 			Verdict.Result r = Verdict.evaluate(dj, listing, null, cfg, est);
 			if (r.banner() == null || r.profit() == null) return new Cached(id, now);   // not profitable / not liquid
 			Double fair = est != null ? Double.valueOf(est.value()) : Verdict.fair(dj);

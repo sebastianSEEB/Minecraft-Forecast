@@ -180,7 +180,15 @@ final class AhScanner {
 	 */
 	static Double value(String key, String itemName) {
 		if (key == null) return null;
-		JsonObject d = SkyPriceClient.docFor(key, false);
+		JsonObject d = key.startsWith("PET_") ? SkyPriceClient.petDoc(key, petLevel(itemName), true) : null;   // same-level sales
+		if (d != null) {
+			Double fair = Verdict.fair(d);
+			Double lowest = HudFormatter.num(HudFormatter.obj(d, "market", "listed"), "lowest");
+			if (lowest == null) lowest = HudFormatter.num(HudFormatter.obj(d, "summary"), "lbin");
+			if (fair == null || fair <= 0) return lowest;
+			return lowest == null || lowest <= 0 ? fair : Math.min(fair, Market.undercut(lowest));
+		}
+		d = SkyPriceClient.docFor(key, false);
 		if (d == null) return null;
 		Double fair = Verdict.fair(d);
 		Double lowest = HudFormatter.num(HudFormatter.obj(d, "market", "listed"), "lowest");

@@ -50,8 +50,12 @@ public final class SkyPriceClient implements ClientModInitializer {
 				Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null, mine);
 				if (r == null || r.lines().isEmpty()) return;
 				if (mine != null && r.listPrice() != null) BidHelper.hoveredList(key, r.listPrice());
-				if (!data.bazaarAll().containsKey(key))           // auction items: 7-day chart beside the menu
-					PriceChart.hovered(key, stack.getHoverName().getString().replaceAll("§.", ""), listing != null ? listing.price() : null);
+				if (!data.bazaarAll().containsKey(key)) {         // auction items: 7-day chart beside the menu
+					Valuation.Attrs pa = config.valueUpgrades ? Valuation.parse(stack) : null;
+					String lk = pa != null && pa.pet ? CoflClient.petLevelKey(key, pa.petLevel) : null;   // pets: same level range
+					PriceChart.hovered(lk != null ? lk : key, stack.getHoverName().getString().replaceAll("§.", ""),
+							listing != null ? listing.price() : null);
+				}
 				if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
 				if (r.nextBid() != null && r.bidCap() != null && r.maxBid() != null)
 					BidHelper.hovered(key, r.suggestedBid(), r.nextBid(), r.bidCap(), r.maxBid(), r.lowestBin());
@@ -329,7 +333,33 @@ public final class SkyPriceClient implements ClientModInitializer {
 		return c;
 	}
 
+	/**
+	 * A pet priced from sales of the same rarity and level range (SkyCofl, last 7 days), or null when that isn't loaded
+	 * yet or fewer than 3 sold (then the level interpolation of Valuation is used).
+	 */
+	static JsonObject petDoc(String key, int level, boolean fetch) {
+		String lk = CoflClient.petLevelKey(key, level);
+		if (lk == null || cofl == null) return null;
+		JsonObject d = cofl.doc(lk, fetch);
+		if (d == null) return null;
+		Double n7 = HudFormatter.num(HudFormatter.obj(d, "stats", "7d", "sold"), "n");
+		if (n7 == null || n7 < 3) return null;
+		d.addProperty("petLevels", lk.substring(lk.indexOf('@') + 1));
+		d.addProperty("petSold7d", n7);
+		return d;
+	}
+
 	private static Verdict.Result resultFor(String key, Verdict.Listing listing, Valuation.Attrs attrs, Verdict.Mine mine) {
+		if (attrs != null && attrs.pet && attrs.petLevel > 0) {
+			JsonObject pd = petDoc(key, attrs.petLevel, true);
+			if (pd != null) {
+				try {
+					return HudFormatter.render(pd, null, config, listing, null, mine);   // priced from same-level sales
+				} catch (RuntimeException e) {
+					// fall through to the normal path
+				}
+			}
+		}
 		DataClient.Doc dd = data.doc(key);
 		if (dd == null) return new Verdict.Result(LOADING, null);
 		JsonObject j = docFor(key, true);

@@ -268,6 +268,15 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 - Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`.
 - Nothing is automated: the mod only shows, opens what you click and copies prices. You buy, bid, list and claim yourself.
 
+### Pets priced by level + rarity (mod 1.20.0+)
+
+Pets are valued from **sales of the same pet, same rarity and the same level range** over the last 7 days (SkyCofl's
+PetLevel filter): max level exactly, then 95–99, 90–94, 80–89, 70–79, 50–69, 30–49, 10–29, 1–9 % of max (Golden
+Dragon on its 200 scale). The cheapest BIN, resale, flip check, bid cap, position values and the 7-day chart all use
+that range, e.g. a Lvl 100 Legendary Tiger is compared with Lvl 100 Legendary sales (~34M), not with Lvl 1 copies
+(~17M). The tooltip says which range it used and how many sold; with fewer than 3 sales in 7 days it falls back to the
+level interpolation.
+
 ### 7-day chart + manipulation warnings (mod 1.19.0+)
 
 - Hover any auction item (AH, inventory, chests): a **big 7-day price chart** appears beside the menu: average sale
