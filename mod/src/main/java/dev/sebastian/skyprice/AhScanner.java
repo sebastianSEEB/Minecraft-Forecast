@@ -43,7 +43,8 @@ import net.minecraft.client.Minecraft;
  * The FCF history (Trend tab / ERP BI) is kept in .minecraft/config/skyprice-fcf.csv (7 days).
  */
 final class AhScanner {
-	private static final long EVERY_MS = 15 * 60_000L, ON_OPEN_MS = 2 * 60_000L;
+	private static final long ON_OPEN_MS = 2 * 60_000L;
+	private static volatile boolean feed;
 	private static final String API = "https://api.hypixel.net/v2/skyblock/auctions?page=";
 
 	private static final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
@@ -71,19 +72,20 @@ final class AhScanner {
 		return running;
 	}
 
-	/** Called every client tick (cheap): starts a scan every 15 min while in a world. */
+	/** Called every client tick (cheap): starts a scan every scanMinutes (default 15) while in a world. */
 	static void tick(SkyPriceConfig cfg) {
-		if (!cfg.modScan || running || Minecraft.getInstance().player == null) return;
-		if (System.currentTimeMillis() - lastStart >= EVERY_MS) start();
+		if (!cfg.modScan && !cfg.flipFeed || running || Minecraft.getInstance().player == null) return;
+		if (System.currentTimeMillis() - lastStart >= Math.max(5, cfg.scanMinutes) * 60_000L) start(cfg);
 	}
 
 	/** Panel opened or ⟳ clicked: rescan if the last one is older than 2 min. */
 	static void poke(SkyPriceConfig cfg, boolean force) {
-		if (!cfg.modScan || running || Minecraft.getInstance().player == null) return;
-		if (force || System.currentTimeMillis() - lastStart >= ON_OPEN_MS) start();
+		if (!cfg.modScan && !cfg.flipFeed || running || Minecraft.getInstance().player == null) return;
+		if (force || System.currentTimeMillis() - lastStart >= ON_OPEN_MS) start(cfg);
 	}
 
-	private static void start() {
+	private static void start(SkyPriceConfig cfg) {
+		feed = cfg.flipFeed;
 		UUID id = Minecraft.getInstance().player.getUUID();
 		String me = id.toString().replace("-", "").toLowerCase(Locale.ROOT);
 		running = true;
@@ -115,6 +117,8 @@ final class AhScanner {
 
 	private static void scan(String me) throws Exception {
 		List<JsonObject> mine = new ArrayList<>();
+		long now = System.currentTimeMillis();
+		if (feed) FlipFeed.begin();
 		int pages = 1;
 		long updated = 0;
 		for (int p = 0; p < pages; p++) {
@@ -130,6 +134,7 @@ final class AhScanner {
 							while (r.hasNext()) {
 								JsonObject a = JsonParser.parseReader(r).getAsJsonObject();
 								if (involves(a, me)) mine.add(a);
+								else if (feed) FlipFeed.collect(a, now);      // every other BIN: cheapest copies per item
 							}
 							r.endArray();
 						}
@@ -141,6 +146,7 @@ final class AhScanner {
 			status = "scanning the AH… page " + (p + 1) + "/" + pages;
 		}
 		build(mine, me, updated > 0 ? updated : System.currentTimeMillis());
+		if (feed) FlipFeed.finish(updated > 0 ? updated : System.currentTimeMillis());
 		lastDone = System.currentTimeMillis();
 		status = "";
 	}

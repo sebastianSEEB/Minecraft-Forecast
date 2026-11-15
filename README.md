@@ -242,6 +242,32 @@ with `/skyprice bz add <id>`, `/skyprice bz remove <id>`, `/skyprice bz reset`. 
 bazaar list every 15 min (`data/bazaar_watch.json`, 7 days) so the chart works without your PC; set a repository
 variable `BAZAAR_WATCH` (comma-separated ids) to change what it records.
 
+### Flipping made simple (mod 1.15.0+)
+
+Press **E**: a **FLIP** tab sits on the right of your inventory and every chest menu. The first time, a 3-tap setup
+asks how much of your purse one flip may use (10 / 25 / 50 %), your risk (Safe ≥10 % profit + 10 sales/day,
+Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (2 / 8 / 24 h). Redo it with ⚙ or
+`/skyprice setup`.
+
+| Tab | What you see | Click |
+|---|---|---|
+| **AH** | the best auctions on the AH page you're looking at (numbered 1–5 on the slots too) + **market flips** from the mod's own AH scan: cheapest BIN clearly under the next copies, resale capped at fair value, sells often enough, fits your budget | opens the auction (`/viewauction`) |
+| **Bazaar** | **your orders** (✔ top / ⚠ outbid / ⚠ undercut, read when you open *Your Bazaar Orders*) + **best flips**: buy order at top + 0.1 → sell offer at cheapest − 0.1, after the 1.25 % tax, × the volume you can fill = coins/hour | copies the buy order price |
+| **Craft** | best craft flips (published every 3 h) that fit your budget | shopping list in chat |
+| **Profit** | realized profit today / 7 days, best flip, recent flips (buys and sells from chat, matched first-in first-out) | |
+
+- **Fair value can't be dragged up by one outlier sale**: SkyCofl prices use the median of the 24 h / 7 d median sale and the
+  lowest BIN (an Aspect of the End with one 75M sale was "fair 876k", now ≈ 430k).
+- **Your own items say SELL**, never GREAT BUY: worth ≈ X · list at Y (just under the cheapest BIN) · you get Z after fees ·
+  sells in ~T. Click the item in *Create Auction* to copy the price; *Manage Auctions* tells you when you've been
+  undercut or a listing expired (relist price).
+- **Every flip shows liquidity**: sales/day, time to resell, confidence (high / medium / low). Manipulation (price jumped
+  vs its 7-day level, listings far above sales) blocks the flip banner.
+- **Simple mode** (default): tooltips show only what to do. **Pro** (footer chip or `/skyprice mode pro`): every number.
+- **Alerts with a ping**: item sold, outbid, bazaar order filled / outbid / undercut, the best new AH flips (max 3 per scan).
+- Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`.
+- Nothing is automated: the mod only shows, opens what you click and copies prices. You buy, bid, list and claim yourself.
+
 ### SkyCofl fallback (mod 1.13.0+)
 When our own data has too little auction history for an item (no PC collector running, or the item wasn't traded
 while the website snapshot ran), the tooltip uses **SkyCofl** (sky.coflnet.com, free public SkyBlock price history):

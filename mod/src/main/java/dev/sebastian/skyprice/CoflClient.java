@@ -189,21 +189,32 @@ final class CoflClient {
 		if (d24 != null) stats.add("24h", wrap(d24));
 		if (d7 != null) stats.add("7d", wrap(d7));
 
-		// fair value: median of 24 h avg, 7 d avg and lowest BIN (whichever exist)
+		// fair value: median of the 24 h median sale, the 7 d median sale and the lowest BIN. Medians of the
+		// per-period averages, so one 75M sale of a maxed copy can't drag a 400k item's fair value up.
 		List<Double> f = new ArrayList<>();
-		if (d24 != null) f.add(d24.get("avg").getAsDouble());
-		if (d7 != null) f.add(d7.get("avg").getAsDouble());
+		if (d24 != null) f.add(d24.get("med").getAsDouble());
+		if (d7 != null) f.add(d7.get("med").getAsDouble());
 		if (lowest != null) f.add(lowest);
 		JsonObject market = new JsonObject();
 		if (!f.isEmpty()) {
-			f.sort(Double::compare);
-			double fair = f.size() % 2 == 1 ? f.get(f.size() / 2) : (f.get(f.size() / 2 - 1) + f.get(f.size() / 2)) / 2;
+			double fair = Market.median(f);
 			market.addProperty("fair", fair);
 			// after buying the cheapest BIN you compete with the 2nd cheapest
-			market.addProperty("resale", second != null ? Math.min(fair, second * 0.99) : fair * 0.97);
+			market.addProperty("resale", second != null ? Math.min(fair, Market.undercut(second)) : fair * 0.97);
 		}
-		if (d24 != null) market.addProperty("sold_median_72h", d24.get("avg").getAsDouble());
-		if (d7 != null) market.addProperty("avg_7d", d7.get("avg").getAsDouble());
+		if (d24 != null) market.addProperty("sold_median_72h", d24.get("med").getAsDouble());
+		if (d7 != null) market.addProperty("avg_7d", d7.get("med").getAsDouble());
+		JsonArray flags = new JsonArray();
+		if (d24 != null && d7 != null && d7.get("med").getAsDouble() > 0) {
+			double jump = d24.get("med").getAsDouble() / d7.get("med").getAsDouble();
+			if (jump >= 1.4) flags.add(flag("spike", 2, String.format(java.util.Locale.ROOT,
+					"price jumped %.0f%% vs its 7-day level: possible manipulation, don't buy to flip", (jump - 1) * 100)));
+			else if (jump <= 0.65) flags.add(flag("crash", 1, String.format(java.util.Locale.ROOT,
+					"price fell %.0f%% vs its 7-day level: may keep falling", (1 - jump) * 100)));
+		}
+		if (lowest != null && d7 != null && lowest > d7.get("med").getAsDouble() * 1.6)
+			flags.add(flag("lbin_high", 2, "cheapest BIN is far above recent sales: listings look inflated"));
+		if (!flags.isEmpty()) market.add("flags", flags);
 		JsonObject listed = new JsonObject();
 		if (lowest != null) listed.addProperty("lowest", lowest);
 		if (second != null) listed.addProperty("second", second);
@@ -219,20 +230,30 @@ final class CoflClient {
 		return doc;
 	}
 
+	private static JsonObject flag(String code, int level, String text) {
+		JsonObject o = new JsonObject();
+		o.addProperty("code", code);
+		o.addProperty("level", level);
+		o.addProperty("text", text);
+		return o;
+	}
+
 	private static JsonObject wrap(JsonObject w) {
 		JsonObject o = new JsonObject();
 		o.add("sold", w);
 		return o;
 	}
 
-	/** Volume-weighted avg, highest max, lowest min and total sold over points since `from`. */
+	/** Volume-weighted avg, median of the period averages, highest max, lowest min and total sold over points since `from`. */
 	private static JsonObject window(List<double[]> pts, long from) {
 		double sumPv = 0, sumV = 0, sumAvg = 0, hi = 0, lo = Double.MAX_VALUE, since = Double.MAX_VALUE;
 		int n = 0;
+		List<Double> avgs = new ArrayList<>();
 		for (double[] p : pts) {
 			if (p[0] < from) continue;
 			n++;
 			sumAvg += p[3];
+			avgs.add(p[3]);
 			sumPv += p[3] * p[4];
 			sumV += p[4];
 			hi = Math.max(hi, p[2]);
@@ -242,6 +263,7 @@ final class CoflClient {
 		if (n == 0) return null;
 		JsonObject o = new JsonObject();
 		o.addProperty("avg", sumV > 0 ? sumPv / sumV : sumAvg / n);
+		o.addProperty("med", Market.median(avgs));                 // robust: one outlier period barely moves it
 		o.addProperty("hi", hi);
 		o.addProperty("lo", lo);
 		o.addProperty("n", sumV);

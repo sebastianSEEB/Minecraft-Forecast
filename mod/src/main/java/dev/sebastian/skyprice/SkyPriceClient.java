@@ -40,10 +40,16 @@ public final class SkyPriceClient implements ClientModInitializer {
 			try {
 				if (!config.enabled) return;
 				String key = ItemKeys.keyFor(stack);
+				boolean inBazaar = inBazaarMenu();
+				if (key == null && inBazaar) key = Bazaar.idForName(stack.getHoverName().getString(), data);   // bazaar menu icons
 				if (key == null) return;                       // not a SkyBlock item
-				Verdict.Listing listing = config.showVerdict ? Verdict.listing(lines, stack.getCount()) : null;
-				Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null);
+				// yours: your own listing (Manage Auctions / Seller: you), or any item that isn't an auction listing
+				Verdict.Mine mine = Verdict.ownListing(lines, stack.getCount(), playerName());
+				Verdict.Listing listing = mine == null ? Verdict.listing(lines, stack.getCount()) : null;
+				if (mine == null && listing == null && !inBazaar) mine = Verdict.Mine.OWNED;
+				Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null, mine);
 				if (r == null || r.lines().isEmpty()) return;
+				if (mine != null && r.listPrice() != null) BidHelper.hoveredList(key, r.listPrice());
 				if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
 				if (r.nextBid() != null && r.bidCap() != null && r.maxBid() != null)
 					BidHelper.hovered(key, r.suggestedBid(), r.nextBid(), r.bidCap(), r.maxBid(), r.lowestBin());
@@ -56,6 +62,11 @@ public final class SkyPriceClient implements ClientModInitializer {
 
 		Highlight.init(config, data);
 		OutbidHud.init(config);
+		Alerts.init(config);
+		ProfitLog.init(config);
+		BzOrders.init(config, data);
+		FlipFeed.init(config);
+		FlipPanel.init(config, data);
 		FcfPanel.init(config, data);
 		Erp.init(config, data);
 		String version = net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer("skyprice")
@@ -64,7 +75,15 @@ public final class SkyPriceClient implements ClientModInitializer {
 		boolean[] greeted = {false};
 		int[] ticks = {0};
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
-			if (client.player != null && ticks[0] % 200 == 0) AhScanner.tick(config);   // checks every 10 s, scans every 15 min
+			if (client.player != null && ticks[0] % 200 == 0) {          // every 10 s
+				try {
+					AhScanner.tick(config);                                // scans every scanMinutes
+					BzOrders.check();                                      // bazaar orders outbid / undercut (every 30 s)
+					if (config.setupDone) FlipFeed.tick(FlipPanel.budget());   // announce the best new AH flips
+				} catch (RuntimeException e) {
+					System.err.println("[SkyPrice] tick: " + e);
+				}
+			}
 			if (client.player != null && ++ticks[0] % 6000 == 1200) {     // every 5 min (1 min after joining)
 				try {
 					Double purse = PurseReporter.readPurse();
@@ -76,10 +95,13 @@ public final class SkyPriceClient implements ClientModInitializer {
 			if (greeted[0] || client.player == null) return;
 			greeted[0] = true;                         // once per game start: proves the mod is loaded
 			Chat.say(HudFormatter.line("[SkyPrice " + version + "] ", HudFormatter.GOLD,
-					"loaded. Press E: the FCF button is above your inventory. /skyprice fcf works too.", HudFormatter.GRAY));
+					"loaded. Press E: FLIP (right of your inventory) shows flips that fit your purse; FCF is above it.", HudFormatter.GRAY));
+			ProfitLog.dailySummary();
 		});
 		ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-			if (!overlay) OutbidHud.onChat(message);
+			if (overlay) return;
+			OutbidHud.onChat(message);
+			Alerts.onChat(message);
 		});
 		BidHelper.register(config);
 		Watch.start(config, data);
@@ -176,6 +198,86 @@ public final class SkyPriceClient implements ClientModInitializer {
 													ctx.getSource().sendFeedback(Component.literal(removed ? "[SkyPrice] Removed " + id : "[SkyPrice] " + id + " wasn't on the list"));
 													return 1;
 												}))))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("flips").executes(ctx -> {
+							FlipFeed.View v = FlipFeed.view(FlipPanel.budget());
+							if (v.flips().isEmpty()) ctx.getSource().sendFeedback(Component.literal("[SkyPrice] No AH flips fit your budget + risk right now"
+									+ (v.checking() > 0 ? " (checking " + v.checking() + " more)." : ".")));
+							for (int i = 0; i < Math.min(10, v.flips().size()); i++) {
+								FlipFeed.Flip f = v.flips().get(i);
+								ctx.getSource().sendFeedback(HudFormatter.line((i + 1) + ". ", HudFormatter.AQUA, f.c().name(), HudFormatter.WHITE,
+										"  buy " + HudFormatter.fmt(f.c().price()) + " → " + HudFormatter.fmt(f.resale()), HudFormatter.GRAY,
+										String.format(Locale.ROOT, "  +%s (%.0f%%)", HudFormatter.fmt(f.profit()), f.pct() * 100), 0x55FF55,
+										"  " + Market.eta(f.liq().etaHours()), HudFormatter.DARK));
+							}
+							if (!v.flips().isEmpty()) ctx.getSource().sendFeedback(Component.literal("[SkyPrice] /skyprice flip <number> opens the auction."));
+							return 1;
+						}))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("flip")
+								.then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("n", IntegerArgumentType.integer(1))
+										.executes(ctx -> {
+											int n = IntegerArgumentType.getInteger(ctx, "n");
+											var list = FlipFeed.last();
+											if (n > list.size()) {
+												ctx.getSource().sendError(Component.literal("No flip #" + n + " (see /skyprice flips)"));
+												return 0;
+											}
+											Chat.command("viewauction " + list.get(n - 1).c().uuid());
+											return 1;
+										})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("bzflips").executes(ctx -> {
+							var list = Bazaar.ranking(config, data, FlipPanel.budget());
+							if (list.isEmpty()) ctx.getSource().sendFeedback(Component.literal("[SkyPrice] No bazaar flips fit your budget (or the bazaar is still loading)."));
+							for (int i = 0; i < Math.min(10, list.size()); i++) {
+								Market.BzFlip f = list.get(i);
+								ctx.getSource().sendFeedback(HudFormatter.line((i + 1) + ". ", HudFormatter.AQUA, Bazaar.name(f.id(), data), HudFormatter.WHITE,
+										"  order " + HudFormatter.fmt(f.order()) + " → offer " + HudFormatter.fmt(f.offer()), HudFormatter.GRAY,
+										String.format(Locale.ROOT, "  +%s each (%.0f%%) · ≈+%s/h", HudFormatter.fmt(f.perUnit()), f.pct() * 100,
+												HudFormatter.fmt(f.coinsPerHour())), 0x55FF55));
+							}
+							return 1;
+						}))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("profit").executes(ctx -> {
+							for (int days : new int[]{0, 6, 29}) {
+								ProfitLog.Summary sm = ProfitLog.summary(ProfitLog.startOfDay(days));
+								ctx.getSource().sendFeedback(HudFormatter.line("[SkyPrice] " + (days == 0 ? "Today" : (days + 1) + " days") + ": ", HudFormatter.GOLD,
+										(sm.profit() >= 0 ? "+" : "") + HudFormatter.fmt(sm.profit()), sm.profit() >= 0 ? 0x55FF55 : 0xFF5555,
+										" from " + sm.flips() + " flips" + (sm.best() != null ? ", best " + sm.best().item() + " +"
+												+ HudFormatter.fmt(sm.best().profit()) : ""), HudFormatter.GRAY));
+							}
+							return 1;
+						}))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("mode")
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("simple").executes(ctx -> {
+									config.simpleMode = true;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Simple mode: tooltips show only what to do."));
+									return 1;
+								}))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("pro").executes(ctx -> {
+									config.simpleMode = false;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Pro mode: tooltips show every number."));
+									return 1;
+								})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("setup").executes(ctx -> {
+							config.setupDone = false;
+							config.save();
+							ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Press E and click FLIP (right of your inventory) for the 3-tap setup."));
+							return 1;
+						}))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("feed")
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("on").executes(ctx -> {
+									config.flipFeed = true;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] AH flip feed on (found during the AH scan)."));
+									return 1;
+								}))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("off").executes(ctx -> {
+									config.flipFeed = false;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] AH flip feed off."));
+									return 1;
+								})))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("erp").executes(ctx -> {
 							Erp.toggle();
 							ctx.getSource().sendFeedback(Component.literal(Erp.isOn() ? "[SkyPrice] ERP mode on: press E." : "[SkyPrice] ERP mode off."));
@@ -221,7 +323,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		return c;
 	}
 
-	private static Verdict.Result resultFor(String key, Verdict.Listing listing, Valuation.Attrs attrs) {
+	private static Verdict.Result resultFor(String key, Verdict.Listing listing, Valuation.Attrs attrs, Verdict.Mine mine) {
 		DataClient.Doc dd = data.doc(key);
 		if (dd == null) return new Verdict.Result(LOADING, null);
 		JsonObject j = docFor(key, true);
@@ -230,10 +332,23 @@ public final class SkyPriceClient implements ClientModInitializer {
 			boolean bz = "bz".equals(j.get("kind").getAsString());
 			DataClient.Live live = bz ? data.live(key) : null;
 			Valuation.Estimate est = bz ? null : Valuation.estimate(j, key, attrs);
-			return HudFormatter.render(j, live, config, listing, est);
+			return HudFormatter.render(j, live, config, listing, est, mine);
 		} catch (RuntimeException e) {
 			return null;
 		}
+	}
+
+	/** Your player name (for "Seller: you" on your own listings), or null. */
+	static String playerName() {
+		var p = Minecraft.getInstance().player;
+		return p == null ? null : p.getName().getString();
+	}
+
+	private static boolean inBazaarMenu() {
+		var s = Minecraft.getInstance().screen;
+		if (s == null) return false;
+		String t = s.getTitle().getString();
+		return t.contains("Bazaar") || t.contains("➜");
 	}
 
 	private static void lookup(FabricClientCommandSource src, String key) {

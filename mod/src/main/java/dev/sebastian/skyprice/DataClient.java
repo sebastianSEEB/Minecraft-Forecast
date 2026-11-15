@@ -28,7 +28,16 @@ import com.google.gson.JsonParser;
  */
 final class DataClient {
 	record Doc(long fetchedAt, JsonObject json, String source) {}
-	record Live(double buy, double sell, long ts) {}
+	/**
+	 * Bazaar quick_status. buy = instant-buy price (cheapest sell offer), sell = instant-sell price (top buy order);
+	 * buyWeek / sellWeek = units instantly bought / sold in the last 7 days; offers / orders = how many sell offers /
+	 * buy orders are open (competition).
+	 */
+	record Live(double buy, double sell, long ts, double buyWeek, double sellWeek, int offers, int orders) {
+		Live(double buy, double sell, long ts) {
+			this(buy, sell, ts, 0, 0, 0, 0);
+		}
+	}
 
 	private final SkyPriceConfig cfg;
 	private final HttpClient http = HttpClient.newBuilder()
@@ -211,6 +220,65 @@ final class DataClient {
 		return bazaar.get(product);
 	}
 
+	private static double d(JsonObject o, String k) {
+		return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsDouble() : 0;
+	}
+
+	/** Every bazaar product (refreshes like live()). Empty until the first fetch. */
+	Map<String, Live> bazaarAll() {
+		live("ENCHANTED_DIAMOND");          // triggers the refresh when stale
+		return bazaar;
+	}
+
+	private volatile JsonObject craft;
+	private volatile long craftAt;
+
+	/** Craft flips published every 3 h by the GitHub job (tools/craft_flips.py). Null until loaded. */
+	JsonObject craftFlips() {
+		long now = System.currentTimeMillis();
+		if (now - craftAt > 600_000L && cfg.dataUrl != null && !cfg.dataUrl.isBlank()) {
+			craftAt = now;
+			getJson(cfg.dataUrl + "/craft_flips.json", 15).whenComplete((j, e) -> {
+				if (j != null) craft = j;
+			});
+		}
+		return craft;
+	}
+
+	private volatile Map<String, String> itemNames;
+	private volatile boolean namesLoading;
+	private volatile long namesAt;
+
+	/**
+	 * Display name (lower case, no colour codes) → SkyBlock id, from the public Hypixel items resource. Used to
+	 * recognise bazaar products in the Bazaar menus and your Bazaar orders. Null until loaded (fetched once).
+	 */
+	Map<String, String> itemNames() {
+		if (itemNames == null && !namesLoading && System.currentTimeMillis() - namesAt > 300_000L) {
+			namesLoading = true;
+			namesAt = System.currentTimeMillis();
+			getJson("https://api.hypixel.net/v2/resources/skyblock/items", 30).whenComplete((j, e) -> {
+				try {
+					if (j != null && j.has("items")) {
+						Map<String, String> m = new ConcurrentHashMap<>();
+						for (JsonElement el : j.getAsJsonArray("items")) {
+							JsonObject o = el.getAsJsonObject();
+							if (!o.has("id") || !o.has("name")) continue;
+							String name = o.get("name").getAsString().replaceAll("§.", "").trim().toLowerCase(java.util.Locale.ROOT);
+							m.putIfAbsent(name, o.get("id").getAsString());
+						}
+						itemNames = m;
+					}
+				} catch (RuntimeException ignored) {
+					// try again later
+				} finally {
+					namesLoading = false;
+				}
+			});
+		}
+		return itemNames;
+	}
+
 	private static Map<String, Live> parseBazaar(JsonObject root) {
 		long ts = root.has("lastUpdated") ? root.get("lastUpdated").getAsLong() : System.currentTimeMillis();
 		JsonObject products = root.getAsJsonObject("products");
@@ -218,7 +286,8 @@ final class DataClient {
 		for (Map.Entry<String, JsonElement> e : products.entrySet()) {
 			JsonObject q = e.getValue().getAsJsonObject().getAsJsonObject("quick_status");
 			if (q == null) continue;
-			out.put(e.getKey(), new Live(q.get("buyPrice").getAsDouble(), q.get("sellPrice").getAsDouble(), ts));
+			out.put(e.getKey(), new Live(q.get("buyPrice").getAsDouble(), q.get("sellPrice").getAsDouble(), ts,
+					d(q, "buyMovingWeek"), d(q, "sellMovingWeek"), (int) d(q, "buyOrders"), (int) d(q, "sellOrders")));
 		}
 		return out;
 	}

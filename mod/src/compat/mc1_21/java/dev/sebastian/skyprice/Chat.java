@@ -14,6 +14,19 @@ final class Chat {
 		});
 	}
 
+	/** Short UI "ping" for alerts (item sold, outbid, order filled). Never throws. */
+	static void ping() {
+		Minecraft mc = Minecraft.getInstance();
+		mc.execute(() -> {
+			try {
+				mc.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
+						net.minecraft.sounds.SoundEvents.NOTE_BLOCK_PLING, 1.0F));
+			} catch (RuntimeException ignored) {
+				// no sound is fine
+			}
+		});
+	}
+
 	/** Runs a server command the player asked for (e.g. "viewauction <id>"), without the leading slash. */
 	static void command(String cmd) {
 		Minecraft mc = Minecraft.getInstance();

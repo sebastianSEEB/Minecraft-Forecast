@@ -51,11 +51,45 @@ final class SkyPriceConfig {
 	double dealMinDiscountPercent = 20;
 	double dealMinValue = 1_000_000;
 	int dealPollSeconds = 60;   // clicking an auction copies the target bid to your clipboard (you place the bid yourself)
+	// ---- flipping (set by the 30-second setup in the FLIP panel; /skyprice setup to redo it)
+	boolean setupDone = false;
+	boolean simpleMode = true;        // Simple: tooltips show only what to do. Pro: every number (/skyprice mode pro)
+	String risk = "normal";           // safe / normal / bold (sets minFlipProfitPercent + minSalesPerDay)
+	double budgetPercent = 25;        // most of your purse one flip may use
+	double fallbackBudget = 1_000_000;// budget when the purse can't be read from the sidebar
+	double minSalesPerDay = 4;        // items that sell less often are never flagged as flips
+	double maxHoldHours = 8;          // longest you're willing to wait for a resale
+	double minFlipProfitCoins = 20_000;
+	boolean flipButton = true;        // "FLIP" tab right of your inventory / chests: top flips that fit your purse
+	boolean flipFeed = true;          // the mod's AH scan also looks for underpriced BINs (gap to the next-cheapest copy)
+	int scanMinutes = 15;             // how often the mod scans the whole AH while you play (min 5)
+	boolean flipAlerts = true;        // chat alert for the best new flips found by the scan (max 3 per scan)
+	boolean alertSound = true;        // ping on: item sold, outbid, bazaar order filled / outbid, big new flip
+	double bazaarTaxPercent = 1.25;   // 1.25 % default; lower with the Bazaar Flipper account upgrade
+	double bazaarSharePercent = 10;   // part of a product's traded volume you can expect to fill
+	boolean bazaarOrderTracker = true;// read "Your Bazaar Orders" and warn when an order is outbid / undercut
+	boolean profitTracker = true;     // log buys + sells from chat → realized profit per flip (config/skyprice-trades.csv)
+	String lastSummaryDay = "";       // the "Yesterday: +X from N flips" message is shown once per day
+
 	boolean showHistory = true;      // 7d / 30d / all-time lines
 	boolean showForecast = true;
 	boolean showSeasons = true;
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+	/** Coins one flip may use: budgetPercent of your purse, or fallbackBudget if the purse is unknown. */
+	double budget(Double purse) {
+		return purse != null && purse > 0 ? purse * budgetPercent / 100.0 : fallbackBudget;
+	}
+
+	void applyRisk(String level) {
+		risk = level;
+		switch (level) {
+			case "safe" -> { minFlipProfitPercent = 10; minSalesPerDay = 10; }
+			case "bold" -> { minFlipProfitPercent = 3; minSalesPerDay = 1; }
+			default -> { minFlipProfitPercent = 5; minSalesPerDay = 4; risk = "normal"; }
+		}
+	}
 
 	void save() {
 		try {

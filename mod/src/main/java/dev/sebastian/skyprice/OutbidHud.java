@@ -70,9 +70,9 @@ final class OutbidHud {
 
 	// ------------------------------------------------------------------ panel
 	private static int[] origin(Screen s) {
-		int left = (s.width - 176) / 2, top = (s.height - 166) / 2;      // vanilla inventory layout
-		int x = Math.min(left + 176 + 6, s.width - W - 4);
-		return new int[]{x, top};
+		int[] box = GuiPos.box(s);
+		int x = Math.min(box[0] + box[2] + 6, s.width - W - 4);
+		return new int[]{x, box[1] + 18};                                // below the FLIP tab
 	}
 
 	private static List<Entry> live() {
@@ -82,7 +82,7 @@ final class OutbidHud {
 	}
 
 	static void paint(Screen s, Highlight.Painter p) {
-		if (cfg == null || !cfg.outbidHud || !(s instanceof InventoryScreen)) return;
+		if (cfg == null || !cfg.outbidHud || !(s instanceof InventoryScreen) || FlipPanel.isOpen()) return;
 		List<Entry> list = live();
 		if (list.isEmpty()) return;
 		int[] o = origin(s);
@@ -108,7 +108,7 @@ final class OutbidHud {
 
 	/** Returns true if the click hit the panel. */
 	static boolean click(Screen s, double mx, double my) {
-		if (cfg == null || !cfg.outbidHud || !(s instanceof InventoryScreen)) return false;
+		if (cfg == null || !cfg.outbidHud || !(s instanceof InventoryScreen) || FlipPanel.isOpen()) return false;
 		List<Entry> list = live();
 		if (list.isEmpty()) return false;
 		int[] o = origin(s);

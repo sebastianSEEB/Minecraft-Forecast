@@ -17,13 +17,21 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 final class BidHelper {
 	record Hover(String key, Double suggested, double nextBid, double cap, double maxProfitable, Double lowest, long at) {}
 
+	record ListHover(String key, double price, long at) {}
+
 	private static volatile Hover last;
+	private static volatile ListHover lastList;
 
 	private BidHelper() {}
 
 	/** Called from the tooltip of a bid auction. */
 	static void hovered(String key, Double suggested, double nextBid, double cap, double maxProfitable, Double lowest) {
 		last = new Hover(key, suggested, nextBid, cap, maxProfitable, lowest, System.currentTimeMillis());
+	}
+
+	/** Called from the tooltip of your own item: what to list it at (copied when you click it in an auction menu). */
+	static void hoveredList(String key, double price) {
+		lastList = new ListHover(key, price, System.currentTimeMillis());
 	}
 
 	static void register(SkyPriceConfig config) {
@@ -38,14 +46,26 @@ final class BidHelper {
 					System.err.println("[SkyPrice] overlay: " + e);
 				}
 				try {
+					BzOrders.scan(s);
+					FlipPanel.paint(s, painter);
+				} catch (RuntimeException e) {
+					System.err.println("[SkyPrice] FLIP panel: " + e);
+				}
+				try {
 					FcfPanel.paint(s, painter);
 					if (s instanceof net.minecraft.client.gui.screens.inventory.InventoryScreen) Erp.paint(s, painter);
 				} catch (RuntimeException e) {                 // never let a drawing bug break the inventory
 					System.err.println("[SkyPrice] FCF/ERP panel: " + e);
 				}
 			});
-			ScreenMouseEvents.allowMouseClick(screen).register((s, event) ->
-					!(s instanceof net.minecraft.client.gui.screens.inventory.InventoryScreen && Erp.click(event.x(), event.y())));
+			ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> {
+				try {
+					if (FlipPanel.click(s, event.x(), event.y())) return false;      // handled by the FLIP panel
+				} catch (RuntimeException e) {
+					System.err.println("[SkyPrice] FLIP click: " + e);
+				}
+				return !(s instanceof net.minecraft.client.gui.screens.inventory.InventoryScreen && Erp.click(event.x(), event.y()));
+			});
 			ScreenMouseEvents.afterMouseClick(screen).register((s, event, consumed) -> {
 				if (OutbidHud.click(s, event.x(), event.y())) return true;
 				if (FcfPanel.click(s, event.x(), event.y())) return true;
@@ -58,6 +78,19 @@ final class BidHelper {
 	private static SkyPriceConfig cfg;
 
 	private static void onClick(Screen screen) {
+		ListHover lh = lastList;
+		String title = screen.getTitle().getString().toLowerCase(Locale.ROOT);
+		if (lh != null && System.currentTimeMillis() - lh.at() <= 400 && title.contains("auction")
+				&& (title.contains("create") || title.contains("manage") || title.contains("your auctions"))) {
+			lastList = null;
+			long amount = (long) Math.floor(lh.price());
+			Minecraft.getInstance().keyboardHandler.setClipboard(Long.toString(amount));
+			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD,
+					"Copied list price " + String.format(Locale.ROOT, "%,d", amount) + " for " + lh.key() + ". ", HudFormatter.WHITE,
+					"Click the price button, paste it (Ctrl+V) and confirm yourself. You get " + HudFormatter.fmt(Verdict.netAfterFees(amount))
+							+ " after fees.", HudFormatter.GRAY));
+			return;
+		}
 		Hover h = last;
 		if (h == null || System.currentTimeMillis() - h.at() > 400) return;     // click must be on the auction you hover
 		if (!screen.getTitle().getString().toLowerCase(Locale.ROOT).contains("auction")) return;

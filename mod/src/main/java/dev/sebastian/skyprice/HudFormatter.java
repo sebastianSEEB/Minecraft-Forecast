@@ -94,21 +94,30 @@ final class HudFormatter {
 
 	// ------------------------------------------------------------------ tooltip
 	static List<Component> tooltip(JsonObject d, DataClient.Live live, SkyPriceConfig cfg) {
-		return render(d, live, cfg, null).lines();
+		return render(d, live, cfg, null, null, null).lines();
 	}
 
 	/** Tooltip lines + optional "PROFIT FLIP / WORTH BIDDING" banner. @param listing the hovered auction, or null */
 	static Verdict.Result render(JsonObject d, DataClient.Live live, SkyPriceConfig cfg, Verdict.Listing listing) {
-		return render(d, live, cfg, listing, null);
+		return render(d, live, cfg, listing, null, null);
 	}
 
-	/** @param est value of the hovered copy (upgrades, pet level, rarity), or null */
 	static Verdict.Result render(JsonObject d, DataClient.Live live, SkyPriceConfig cfg, Verdict.Listing listing, Valuation.Estimate est) {
+		return render(d, live, cfg, listing, est, null);
+	}
+
+	/**
+	 * @param est  value of the hovered copy (upgrades, pet level, rarity), or null
+	 * @param mine non-null when the hovered item is yours (sell advice instead of buy advice)
+	 */
+	static Verdict.Result render(JsonObject d, DataClient.Live live, SkyPriceConfig cfg, Verdict.Listing listing, Valuation.Estimate est,
+			Verdict.Mine mine) {
 		List<Component> out = new ArrayList<>();
 		Component banner = null;
 		Verdict.Result verdict = null;
 		JsonObject s = obj(d, "summary");
 		boolean bz = "bz".equals(d.get("kind").getAsString());
+		boolean pro = !cfg.simpleMode;
 		JsonObject stats = obj(d, "stats");
 
 		if (bz) {
@@ -118,15 +127,16 @@ final class HudFormatter {
 			out.add(line("Bazaar ", GOLD, "buy ", GRAY, fmt(buy), WHITE, "  sell ", GRAY, fmt(sell), WHITE,
 					ts > 0 ? "  (" + ago(ts) + ")" : "", DARK));
 			JsonObject b24 = obj(stats, "24h", "buy");
-			if (b24 != null) out.add(line(" 24h  avg ", GRAY, fmt(num(b24, "avg")), WHITE, "  high ", GRAY, fmt(num(b24, "hi")), GREEN,
+			if (pro && b24 != null) out.add(line(" 24h  avg ", GRAY, fmt(num(b24, "avg")), WHITE, "  high ", GRAY, fmt(num(b24, "hi")), GREEN,
 					"  low ", GRAY, fmt(num(b24, "lo")), RED));
-			if (cfg.showVerdict) {
+			bazaarFlipLines(out, live, cfg, d, mine != null);
+			if (cfg.showVerdict && mine == null) {
 				Verdict.Result v = Verdict.evaluate(d, null, buy, cfg);
 				out.addAll(v.lines());
 				banner = v.banner();
 			}
-			if (cfg.showHistory) history(out, stats, "buy");
-			if (cfg.showForecast) forecast(out, obj(d, "forecast", "buy"), buy);
+			if (pro && cfg.showHistory) history(out, stats, "buy");
+			if (pro && cfg.showForecast) forecast(out, obj(d, "forecast", "buy"), buy);
 		} else {
 			Double lbin = num(s, "lbin");
 			Double listed = num(s, "listed");
@@ -135,26 +145,51 @@ final class HudFormatter {
 					listed != null ? "  (" + listed.intValue() + " listed)" : "", DARK));
 			JsonObject a24 = obj(stats, "24h", "sold");
 			Double sales = num(s, "sales");
-			if (a24 != null && sales != null && sales > 0) {
+			if (pro && a24 != null && sales != null && sales > 0) {
 				out.add(line(" 24h  avg sold ", GRAY, fmt(num(s, "avg")), WHITE, "  high ", GRAY, fmt(num(s, "hi")), GREEN,
 						"  low ", GRAY, fmt(num(s, "lo")), RED, "  (" + sales.intValue() + " sales)", DARK));
-			} else {
+			} else if (pro) {
 				out.add(line(" No sales in the last 24h", GRAY));
 			}
-			if (cfg.showVerdict) {
-				Verdict.Result v = Verdict.evaluate(d, listing, null, cfg, est);
+			if (cfg.showVerdict || mine != null) {
+				Verdict.Result v = Verdict.evaluate(d, listing, null, cfg, est, mine);
 				out.addAll(v.lines());
 				banner = v.banner();
 				verdict = v;
 			}
-			if (cfg.showHistory) history(out, stats, obj(stats, "all", "sold") != null ? "sold" : "lbin");
-			if (cfg.showForecast) forecast(out, obj(d, "forecast", "main"), lbin != null ? lbin : num(s, "avg"));
+			if (pro && cfg.showHistory) history(out, stats, obj(stats, "all", "sold") != null ? "sold" : "lbin");
+			if (pro && cfg.showForecast) forecast(out, obj(d, "forecast", "main"), lbin != null ? lbin : num(s, "avg"));
 			if (cofl) out.add(line(" Prices provided by SkyCofl (sky.coflnet.com)", DARK));
 		}
-		if (cfg.showSeasons) seasons(out, d);
-		return verdict == null ? new Verdict.Result(out, banner)
-				: new Verdict.Result(out, banner, verdict.suggestedBid(), verdict.currentBid(), verdict.maxBid(), verdict.lowestBin(),
-						verdict.nextBid(), verdict.bidCap());
+		if (pro && cfg.showSeasons) seasons(out, d);
+		if (!pro) out.add(line(" Simple mode · /skyprice mode pro for all numbers", DARK));
+		return verdict == null ? new Verdict.Result(out, banner) : verdict.withLines(out, banner);
+	}
+
+	/** Bazaar flip (buy order → sell offer, after tax) + volume, or what to do when you're selling. */
+	private static void bazaarFlipLines(List<Component> out, DataClient.Live live, SkyPriceConfig cfg, JsonObject d, boolean selling) {
+		if (live == null || live.buy() <= 0 || live.sell() <= 0) return;
+		double tax = cfg.bazaarTaxPercent / 100.0;
+		if (selling) {
+			out.add(line(" ➜ SELL", AQUA, ": instantly " + fmt(live.sell() * (1 - tax)) + " each, or a sell offer at ", GRAY,
+					fmt(live.buy() - 0.1), GREEN, " → " + fmt((live.buy() - 0.1) * (1 - tax)) + " each after tax", GRAY));
+			return;
+		}
+		Market.BzFlip f = Market.bazaarFlip(str(d, "k"), live.buy(), live.sell(), live.buyWeek(), live.sellWeek(), live.orders(),
+				cfg.bazaarTaxPercent, cfg.bazaarSharePercent / 100.0, cfg.budget(FcfPanel.purse()));
+		if (f == null) return;
+		if (f.perUnit() > 0 && f.pct() >= 0.01) {
+			out.add(line(" ⇄ FLIP", GREEN, ": buy order ", GRAY, fmt(f.order()), WHITE, " → sell offer ", GRAY, fmt(f.offer()), WHITE,
+					String.format(Locale.ROOT, " = +%s each (%.1f%%) after tax", fmt(f.perUnit()), f.pct() * 100), GREEN));
+		} else {
+			out.add(line(" ⇄ no flip margin after the " + cfg.bazaarTaxPercent + "% tax", DARK));
+		}
+		if (f.weekly() > 0) {
+			out.add(line("    " + fmt(f.unitsPerHour()) + " traded/h", GRAY,
+					f.perUnit() > 0 ? " · you ≈ +" + fmt(f.coinsPerHour()) + "/h with your budget" : "", f.perUnit() > 0 ? GREEN : GRAY,
+					f.competition() > 0 ? " · " + f.competition() + " buy orders" : "", DARK));
+		}
+		if (f.pct() > 1.0) out.add(line("    ⚠ margin over 100%: thin or manipulated, skip it", RED));
 	}
 
 	private static void history(List<Component> out, JsonObject stats, String side) {
@@ -235,6 +270,7 @@ final class HudFormatter {
 		out.add(line("━━ ", DARK, key, GOLD, "  (" + source + ")", DARK));
 		SkyPriceConfig all = new SkyPriceConfig();
 		all.showForecast = all.showHistory = all.showSeasons = true;
+		all.simpleMode = false;                       // you asked for it: show every number
 		out.addAll(tooltip(d, live, all));
 		JsonObject daily = obj(d, "daily");
 		boolean bz = "bz".equals(d.get("kind").getAsString());

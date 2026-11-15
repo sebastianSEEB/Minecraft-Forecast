@@ -1,0 +1,97 @@
+package dev.sebastian.skyprice;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * Bazaar flip ranking over every product (live quick_status from the public Hypixel API):
+ *
+ *   buy order at top + 0.1  →  sell offer at cheapest − 0.1  →  profit per unit after the bazaar tax
+ *   × the units you can expect to fill per hour (bazaarSharePercent of the traded volume, limited by your budget)
+ *   = coins per hour.
+ *
+ * Skipped: margins under 2 % or over 100 % (thin or manipulated), fewer than 10 units traded per hour, products
+ * whose buy order alone costs more than your budget. Also turns a display name ("Enchanted Diamond") back into the
+ * product id for the Bazaar menus and your orders.
+ */
+final class Bazaar {
+	private static volatile List<Market.BzFlip> ranked = List.of();
+	private static volatile long rankedAt;
+	private static volatile double rankedBudget = -1;
+	private static volatile Map<String, String> prettyNames = Map.of();
+	private static volatile int prettyFor = -1;
+
+	private Bazaar() {}
+
+	/** Best bazaar flips for this budget, best coins/hour first (recomputed at most every 20 s). */
+	static List<Market.BzFlip> ranking(SkyPriceConfig cfg, DataClient data, double budget) {
+		long now = System.currentTimeMillis();
+		if (now - rankedAt < 20_000 && Math.abs(rankedBudget - budget) < 1) return ranked;
+		Map<String, DataClient.Live> all = data.bazaarAll();
+		List<Market.BzFlip> out = new ArrayList<>();
+		for (Map.Entry<String, DataClient.Live> e : all.entrySet()) {
+			DataClient.Live l = e.getValue();
+			Market.BzFlip f = Market.bazaarFlip(e.getKey(), l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), l.orders(),
+					cfg.bazaarTaxPercent, cfg.bazaarSharePercent / 100.0, budget);
+			if (f == null || f.perUnit() <= 0 || f.pct() < 0.02 || f.pct() > 1.0) continue;
+			if (f.unitsPerHour() < 10 || f.order() > budget) continue;
+			out.add(f);
+		}
+		out.sort((a, b) -> Double.compare(b.coinsPerHour(), a.coinsPerHour()));
+		ranked = out.size() > 50 ? new ArrayList<>(out.subList(0, 50)) : out;
+		rankedAt = now;
+		rankedBudget = budget;
+		return ranked;
+	}
+
+	/** "Enchanted Diamond" (any colour codes, "64x " prefixes, "BUY "/"SELL " prefixes) → ENCHANTED_DIAMOND, or null. */
+	static String idForName(String display, DataClient data) {
+		if (display == null) return null;
+		String n = display.replaceAll("§.", "").trim();
+		n = n.replaceFirst("^(?i)(BUY|SELL)\\s+", "").replaceFirst("^[0-9,]+x\\s+", "").trim().toLowerCase(Locale.ROOT);
+		if (n.isEmpty()) return null;
+		Map<String, DataClient.Live> all = data.bazaarAll();
+		Map<String, String> names = data.itemNames();
+		if (names != null) {
+			String id = names.get(n);
+			if (id != null && all.containsKey(id)) return id;
+		}
+		Map<String, String> pretty = prettyNames;
+		if (prettyFor != all.size()) {
+			Map<String, String> m = new HashMap<>();
+			for (String id : all.keySet()) m.put(Erp.pretty(id).toLowerCase(Locale.ROOT), id);
+			prettyNames = pretty = m;
+			prettyFor = all.size();
+		}
+		return pretty.get(n);
+	}
+
+	private static volatile Map<String, String> byId = Map.of();
+	private static volatile Map<String, String> byIdFor;
+
+	/** Display name of a product id (Hypixel's own name when known). */
+	static String name(String id, DataClient data) {
+		Map<String, String> names = data.itemNames();
+		if (names != null && byIdFor != names) {
+			Map<String, String> m = new HashMap<>();
+			for (Map.Entry<String, String> e : names.entrySet()) m.putIfAbsent(e.getValue(), titleCase(e.getKey()));
+			byId = m;
+			byIdFor = names;
+		}
+		String n = byId.get(id);
+		return n != null ? n : Erp.pretty(id);
+	}
+
+	private static String titleCase(String lower) {
+		StringBuilder sb = new StringBuilder();
+		for (String w : lower.split(" ")) {
+			if (w.isEmpty()) continue;
+			if (sb.length() > 0) sb.append(' ');
+			sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1));
+		}
+		return sb.toString();
+	}
+}
