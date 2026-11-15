@@ -73,6 +73,7 @@ final class FcfPanel {
 		long now = System.currentTimeMillis();
 		if (!force && now - requestedAt < 60_000) return;
 		requestedAt = now;
+		AhScanner.poke(cfg, force);                     // the mod's own AH scan (if the last one is > 2 min old)
 		data.walletReport().whenComplete((r, e) -> {
 			if (r != null && r.json() != null) {
 				report = r.json();
@@ -132,7 +133,7 @@ final class FcfPanel {
 		}
 
 		int x = panelX(s), y = top(s), w = Math.min(W, Math.max(120, left(s) - 8));
-		JsonObject rep = report;
+		JsonObject rep = report();
 		JsonObject f = HudFormatter.obj(rep, "fcf");
 		JsonObject n = HudFormatter.obj(f, "now");
 		var font = Minecraft.getInstance().font;
@@ -152,8 +153,8 @@ final class FcfPanel {
 			p.fill(x, y, x + w, y + 1, EDGE);
 			p.text("Potential FCF", x + 5, y + 4, GOLD);
 			p.text("Wallet " + HudFormatter.fmt(wallet), x + 5, y + 18, TEXT);
-			p.text(rep == null && fetchedAt == 0 && System.currentTimeMillis() - requestedAt < 15_000 ? "Loading…" : "No positions published yet.", x + 5, y + 32, MUTED);
-			p.text("The website updates every 15 min.", x + 5, y + 44, MUTED);
+			p.text(AhScanner.running() ? fit(AhScanner.status(), w - 10) : rep == null ? "Loading…" : "No positions yet.", x + 5, y + 32, MUTED);
+			p.text(fit("The mod scans the AH every 15 min.", w - 10), x + 5, y + 44, MUTED);
 			return;
 		}
 		boolean subtract = n.has("bids_subtracted") && n.get("bids_subtracted").getAsBoolean();
@@ -292,8 +293,8 @@ final class FcfPanel {
 			rowUuids.add(str(o, "uuid"));
 			cy += POS_ROW;
 		}
-		long mins = fetchedAt == 0 ? -1 : (System.currentTimeMillis() - d(f, "updated") > 0 ? (long) ((System.currentTimeMillis() - d(f, "updated")) / 60000) : 0);
-		p.text(fit((mins < 0 ? "" : "scan " + (mins < 1 ? "now" : mins + "m ago") + " · ") + source, barW - 12), barX,
+		long mins = report() == null ? -1 : (System.currentTimeMillis() - d(f, "updated") > 0 ? (long) ((System.currentTimeMillis() - d(f, "updated")) / 60000) : 0);
+		p.text(fit(AhScanner.running() ? AhScanner.status() : (mins < 0 ? "" : "scan " + (mins < 1 ? "now" : mins + "m ago") + " · ") + source(), barW - 12), barX,
 				y + h[0] - 11, MUTED);
 		p.text("⟳", barX + barW - 6, y + h[0] - 11, 0xFF55FFFF);
 		lastHeight = h[0];
@@ -597,9 +598,37 @@ final class FcfPanel {
 		p.fill(prevX - 1, prevY - 1, prevX + 2, prevY + 3, color);         // marker on the latest point
 	}
 
-	static JsonObject report() { return report; }
-	static String source() { return source; }
-	static long fetchedAt() { return fetchedAt; }
+	/**
+	 * The freshest positions report: the mod's own AH scan, your PC collector (/wallet) or the website's 15-min scan.
+	 * The bank balance and the GitHub FCF history are carried over from the downloaded report.
+	 */
+	static JsonObject report() {
+		JsonObject web = report, mod = AhScanner.report();
+		if (mod == null) return web;
+		double webTs = d(HudFormatter.obj(web, "fcf"), "updated"), modTs = d(HudFormatter.obj(mod, "fcf"), "updated");
+		if (web != null && webTs > modTs) return web;
+		JsonObject out = mod.deepCopy();
+		if (web != null && web.has("now")) out.add("now", web.get("now"));
+		JsonObject wf = HudFormatter.obj(web, "fcf"), of = HudFormatter.obj(out, "fcf");
+		if (wf != null && wf.has("series") && of != null && of.has("series")) {   // GitHub history + the mod's own points
+			com.google.gson.JsonArray merged = new com.google.gson.JsonArray();
+			java.util.List<JsonObject> pts = new java.util.ArrayList<>();
+			for (JsonElement e : wf.getAsJsonArray("series")) pts.add(e.getAsJsonObject());
+			for (JsonElement e : of.getAsJsonArray("series")) pts.add(e.getAsJsonObject());
+			pts.sort((a, b) -> Double.compare(d(a, "ts"), d(b, "ts")));
+			pts.forEach(merged::add);
+			of.add("series", merged);
+		}
+		return out;
+	}
+
+	static String source() {
+		JsonObject mod = AhScanner.report();
+		if (mod != null && report() != report) return "this mod";
+		return source;
+	}
+
+	static long fetchedAt() { return Math.max(fetchedAt, AhScanner.lastDone()); }
 
 	/** Chat version (/skyprice fcf). */
 	static List<net.minecraft.network.chat.Component> chat(JsonObject rep, String src) {

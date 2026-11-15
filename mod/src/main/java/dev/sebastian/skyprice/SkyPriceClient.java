@@ -60,6 +60,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		boolean[] greeted = {false};
 		int[] ticks = {0};
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			if (client.player != null && ticks[0] % 200 == 0) AhScanner.tick(config);   // checks every 10 s, scans every 15 min
 			if (client.player != null && ++ticks[0] % 6000 == 1200) {     // every 5 min (1 min after joining)
 				try {
 					Double purse = PurseReporter.readPurse();

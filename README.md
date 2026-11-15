@@ -210,6 +210,11 @@ In game (mod 1.10.0+): open your inventory and click **FCF ▸** above it. A pan
 waterfall (your live purse from the sidebar + bank), the conservative FCF marker and your open positions (tab **Flow**), a pie of where your coins are tied up (tab **Tied up**) and a line chart of your FCF over 24 h / 7 d (tab **Trend**, your purse history is logged from the sidebar while you play); click a
 position to open that auction, click ⟳ to refresh. `/skyprice fcf` prints it in chat. Turn off with `"fcfButton": false`.
 
+**In the mod (1.14.0+):** while you play, the mod scans the whole AH itself every 15 minutes (and when you open the
+FCF panel or ERP if the last scan is over 2 minutes old), streamed and gzip-compressed in the background. It identifies
+each of your items from its item_bytes and values it like the tooltip; history goes to `.minecraft/config/skyprice-fcf.csv`
+(7 days). The freshest of the mod scan, your PC collector and the website is used. Turn off with `"modScan": false`.
+
 **Without your PC:** `.github/workflows/positions.yml` scans the AH for SpookyHawk every 15 minutes on GitHub and
 publishes `data/positions.json` (valued with the published item models). The mod reads it whenever your PC collector
 isn't running and adds your live purse from the sidebar. Add a repository secret `HYPIXEL_API_KEY` to include the bank.

@@ -38,6 +38,7 @@ final class SkyPriceConfig {
 
 	boolean outbidHud = true;         // panel right of your inventory with auctions you've been outbid on (click = open)
 	int outbidHours = 12;
+	boolean modScan = true;           // scan the AH for your listings + bids every 15 min while you play (FCF panel / ERP)
 	boolean coflFallback = true;      // use SkyCofl (sky.coflnet.com) prices when our data has too little history
 	boolean fcfButton = true;
 	boolean erpButton = true;         // "ERP" button above your inventory: RealGame-style console for your AH trading
