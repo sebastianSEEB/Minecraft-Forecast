@@ -44,6 +44,12 @@ CREATE TABLE IF NOT EXISTS wallet (            -- your coins over time
 CREATE TABLE IF NOT EXISTS models (            -- fitted clean-base / pet-level value models (market/valuation.py)
     item_key TEXT PRIMARY KEY, ts INTEGER, item_id TEXT, model TEXT
 );
+CREATE TABLE IF NOT EXISTS my_positions (      -- your current AH listings and bids (market/fcf.py), replaced every scan
+    uuid TEXT PRIMARY KEY, ts INTEGER, doc TEXT
+);
+CREATE TABLE IF NOT EXISTS fcf (               -- potential free cash flow after every full AH scan
+    ts INTEGER PRIMARY KEY, wallet REAL, sales REAL, bids REAL, expected REAL, refunds REAL, fcf REAL, fcf_conservative REAL
+);
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
 

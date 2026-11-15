@@ -5,6 +5,16 @@ from .db import HOUR_MS
 
 
 def wallet_report(c, now_ms: int) -> dict | None:
+    from .fcf import fcf_report
+    rep = _wallet_only(c, now_ms)
+    f = fcf_report(c, now_ms)
+    if f:
+        rep = rep or {}
+        rep["fcf"] = f
+    return rep
+
+
+def _wallet_only(c, now_ms: int) -> dict | None:
     rows = c.execute("SELECT ts, source, player, profile, purse, bank, personal_bank, total FROM wallet ORDER BY ts").fetchall()
     if not rows:
         return None

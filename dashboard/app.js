@@ -539,6 +539,7 @@ async function showWallet() {
   if (!WAL) {
     try { const r = await fetch("data/wallet.json", { cache: "no-store" }); WAL = r.ok ? await r.json() : {}; } catch (e) { WAL = {}; }
   }
+  showFcf();
   if (!WAL.series) {
     $("#wTitle").textContent = "Wallet";
     $("#wSub").innerHTML = "No coin data yet. Either play with the SkyPrice mod while the PC collector runs (it reads your purse from the sidebar), "
@@ -562,12 +563,94 @@ async function showWallet() {
   drawWallet(); drawWalletBars();
 }
 
+/* Potential FCF = wallet + ongoing sales − ongoing bids + expected sale value (+ outbid refunds), see market/fcf.py */
+function showFcf() {
+  const F = WAL.fcf, card = $("#wFcfCard");
+  if (!F) { card.style.display = "none"; return; }
+  card.style.display = "";
+  const n = F.now, sign = v => v == null ? "–" : `<span class="${v >= 0 ? "up" : "down"}">${v >= 0 ? "+" : "−"}${fmt(Math.abs(v))}</span>`;
+  const tile = (l, v, sub = "") => `<div class="card kpi"><div class="l">${l}</div><div class="v num">${v}</div><div class="muted small">${sub}</div></div>`;
+  $("#wFcfSub").innerHTML = `Wallet + ongoing sales − ongoing bids + expected sale value of what you're winning`
+    + (n.bids_subtracted ? "." : `, + coins from bids you've lost. Hypixel takes bid coins when you bid, so your wallet already excludes the ${fmt(n.bids)} in winning bids; it's shown, not subtracted twice.`)
+    + ` Positions from the AH scan at ${new Date(F.updated).toLocaleTimeString()}.`;
+  $("#wFcfKpis").innerHTML = tile("Potential FCF", fmt(n.fcf), n.wallet == null ? "wallet unknown: add an API key or run the mod" : `wallet ${fmt(n.wallet)} ${sign(n.on_ah)} on the AH`)
+    + tile("Conservative FCF", fmt(n.fcf_conservative), "listings valued at min(price, estimated value)")
+    + tile("Expected profit on wins", sign(n.expected_profit_on_wins), `${n.n_winning} winning · ${n.n_outbid} outbid${n.unvalued_wins ? ` · ${n.unvalued_wins} not valued yet` : ""}`)
+    + tile("FCF change 24h", sign(F.change_24h), F.change_24h == null ? "needs 24 h of scans" : `7d ${sign(F.change_7d)}`);
+  drawFcf();
+  const posRows = F.positions.map(p => {
+    const ends = p.ended ? "ended" : inHours(p.end);
+    const cash = p.role === "sale" ? p.net : p.status === "winning" ? p.expected_net : p.amount;
+    const cashTxt = p.role === "bid" && p.status === "winning" && p.profit != null ? `${fmt(cash)} <span class="muted">(${p.profit >= 0 ? "+" : "−"}${fmt(Math.abs(p.profit))})</span>`
+      : p.role === "bid" && p.status === "outbid" ? `${fmt(cash)} <span class="muted">refund</span>` : fmt(cash);
+    const st = p.status + (p.overpriced ? ' <span class="tag">above value</span>' : "");
+    return `<tr><td>${p.role === "sale" ? "Selling" : "Bidding"}</td><td class="l">${p.count > 1 ? p.count + "× " : ""}${esc(String(p.item || p.key || "?").replace(/§./g, ""))}${p.tier ? `<span class="tag">${esc(p.tier.toLowerCase())}</span>` : ""}</td>
+      <td class="l">${st}</td><td class="num">${fmt(p.amount)}${p.role === "bid" && p.status === "outbid" ? ` <span class="muted">top ${fmt(p.top_bid)}</span>` : ""}</td>
+      <td class="num">${fmt(p.value)}</td><td class="num">${cashTxt}</td><td>${ends}</td></tr>`;
+  });
+  $("#wPos").innerHTML = posRows.join("") || '<tr><td colspan="7" class="muted">No active listings or bids in the last AH scan.</td></tr>';
+}
+
+function drawFcf() {
+  const n = WAL.fcf.now, box = $("#wFcf"), W = Math.max(320, box.clientWidth), H = 240, P = { l: 56, r: 16, t: 22, b: 30 };
+  const w0 = n.wallet || 0, steps = [["Wallet", w0, "total"], ["Ongoing sales", n.sales, "up"]];
+  steps.push(["Ongoing bids", -n.bids, n.bids_subtracted ? "down" : "paid"]);
+  steps.push(["Expected sale value", n.expected, "up"]);
+  if (!n.bids_subtracted) steps.push(["Outbid refunds", n.refunds, "up"]);
+  const bars = []; let run = 0;
+  steps.forEach(([l, v, k]) => {
+    if (k === "total") { bars.push({ l, v, k, a: 0, b: v }); run = v; }
+    else if (k === "paid") bars.push({ l, v, k, a: run, b: run + v });                     // shown, not applied
+    else { bars.push({ l, v, k, a: run, b: run + v }); run += v; }
+  });
+  bars.push({ l: "Potential FCF", v: n.fcf, k: "total", a: 0, b: n.fcf, cons: n.fcf_conservative });
+  const hi = Math.max(...bars.map(b => Math.max(b.a, b.b))) * 1.08 || 1, lo = Math.min(0, ...bars.map(b => Math.min(b.a, b.b)));
+  const bw = (W - P.l - P.r) / bars.length, Y = v => P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b);
+  const col = { total: "var(--text-secondary)", up: "var(--div-pos)", down: "var(--div-neg)", paid: "var(--div-neg)" };
+  box.querySelectorAll("svg").forEach(e => e.remove());
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Potential FCF waterfall">
+    <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--div-neg)" stroke-width="2"/></pattern></defs>`;
+  niceTicks(lo, hi, 4).forEach(v => { svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${P.l - 8}" y="${Y(v) + 4}" text-anchor="end">${fmt(v)}</text>`; });
+  bars.forEach((b, i) => {
+    const x = P.l + i * bw + bw * 0.18, w = bw * 0.64, top = Y(Math.max(b.a, b.b)), h = Math.max(1, Math.abs(Y(b.a) - Y(b.b)));
+    const fill = b.k === "paid" ? "url(#hatch)" : col[b.k];
+    svg += `<rect x="${x}" y="${top}" width="${w}" height="${h}" rx="3" fill="${fill}" ${b.k === "paid" ? 'stroke="var(--div-neg)" stroke-dasharray="3 2"' : ""} data-i="${i}"/>`;
+    if (i < bars.length - 1 && b.k !== "paid") {                                          // connector to the next step
+      const lvl = b.k === "total" ? b.b : b.b, nx = P.l + (i + 1) * bw + bw * 0.18;
+      svg += `<line x1="${x + w}" x2="${nx}" y1="${Y(lvl)}" y2="${Y(lvl)}" stroke="var(--text-muted)" stroke-dasharray="2 2"/>`;
+    }
+    if (b.cons != null && Math.abs(b.cons - b.v) > 1) svg += `<line x1="${x - 4}" x2="${x + w + 4}" y1="${Y(b.cons)}" y2="${Y(b.cons)}" stroke="var(--text-primary)" stroke-width="2" stroke-dasharray="4 3"/>`;
+    const val = b.k === "total" ? fmt(b.v) : (b.v >= 0 ? "+" : "−") + fmt(Math.abs(b.v));
+    svg += `<text x="${x + w / 2}" y="${top - 6}" text-anchor="middle" style="fill:var(--text-primary)">${val}</text>`;
+    svg += `<text x="${x + w / 2}" y="${H - 10}" text-anchor="middle">${b.l}</text>`;
+  });
+  svg += `</svg>`;
+  box.insertAdjacentHTML("afterbegin", svg);
+  const tip = $("#wTip3");
+  const notes = { "Wallet": "purse + bank", "Ongoing sales": "your listings at their price, after the 1% claim tax",
+    "Ongoing bids": n.bids_subtracted ? "coins in auctions you're winning" : "already taken from your purse when you bid (not subtracted again)",
+    "Expected sale value": "what your winning items resell for, after listing fee + claim tax", "Outbid refunds": "coins from lost bids to collect",
+    "Potential FCF": `dashed line = conservative ${fmt(n.fcf_conservative)}` };
+  box.querySelectorAll("rect[data-i]").forEach(r => {
+    r.addEventListener("mousemove", e => { const b = bars[+r.dataset.i];
+      tip.innerHTML = `<div class="small muted">${b.l}</div><div class="row"><b class="num">${fmt(b.v)}</b></div><div class="small muted">${notes[b.l] || ""}</div>`;
+      tip.style.display = "block"; const bx = box.getBoundingClientRect(), px = e.clientX - bx.left;
+      tip.style.left = (px + 14 + tip.offsetWidth > box.clientWidth ? px - tip.offsetWidth - 14 : px + 14) + "px"; tip.style.top = "8px"; });
+    r.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+  });
+}
+
 function drawWallet() {
   const box = $("#wChart"), W = Math.max(320, box.clientWidth), H = 280, P = { l: 56, r: 16, t: 12, b: 26 };
   const pts = WAL.series.filter(p => p.ts >= Date.now() - wRange * 3600e3);
   box.querySelectorAll("svg,.empty").forEach(e => e.remove());
   if (pts.length < 2) { box.insertAdjacentHTML("afterbegin", '<div class="empty">Not enough points yet.</div>'); return; }
   const keys = WAL.bank_known ? [["total", "Total", "var(--series-1)"], ["purse", "Purse", "var(--series-2)"], ["bank", "Bank", "#1baf7a"]] : [["total", "Purse (total)", "var(--series-1)"]];
+  if (WAL.fcf && WAL.fcf.series.length) {
+    const byTs = new Map(WAL.fcf.series.map(p => [p.ts, p.fcf]));
+    pts.forEach(p => { if (byTs.has(p.ts)) p.fcf = byTs.get(p.ts); });
+    if (pts.some(p => p.fcf != null)) keys.push(["fcf", "Potential FCF", "var(--accent)"]);
+  }
   $("#wLegend").innerHTML = keys.map(([, l, c]) => `<span><span class="sw" style="background:${c}"></span>${l}</span>`).join("");
   const vals = []; pts.forEach(p => keys.forEach(([k]) => p[k] != null && vals.push(p[k])));
   let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.08 || hi * 0.05 || 1; lo = Math.max(0, lo - pad); hi += pad;
@@ -654,5 +737,5 @@ $("#stbody").addEventListener("click", e => {
   const tr = e.target.closest("tr[data-sk]");
   if (tr) { history.replaceState(null, "", `#season&item=${encodeURIComponent(tr.dataset.sk)}&cycle=${tr.dataset.cy}`); openSeason(tr.dataset.sk, tr.dataset.cy); }
 });
-let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (CURRENT && CURRENT.d) drawChart(); if (WAL && WAL.series && location.hash.startsWith("#wallet")) { drawWallet(); drawWalletBars(); } }, 150); });
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (CURRENT && CURRENT.d) drawChart(); if (WAL && location.hash.startsWith("#wallet")) { if (WAL.fcf) drawFcf(); if (WAL.series) { drawWallet(); drawWalletBars(); } } }, 150); });
 load();

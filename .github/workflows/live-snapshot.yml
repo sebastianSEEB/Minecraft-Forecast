@@ -35,6 +35,7 @@ jobs:
           python tests/test_deals.py
           python tests/test_wallet.py
           python tests/test_valuation.py
+          python tests/test_fcf.py
       - name: Collect from live Hypixel API
         run: |
           cat > config.json <<'JSON'

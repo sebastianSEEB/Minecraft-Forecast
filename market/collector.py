@@ -193,9 +193,14 @@ class ActiveAHJob(Job):
         pages = int(first.get("totalPages") or 1)
         listings: dict[str, list] = {}       # key -> [(unit price, seller, uuid, count, total price), ...]
         seen = set()
+        me = self.my_uuid()
+        mine: list[dict] = []                # auctions I created or bid on (potential FCF)
         for p in range(pages):
             data = first if p == 0 else self.api.auctions_page(p)
             for a in data.get("auctions", []):
+                if me and (str(a.get("auctioneer") or "").replace("-", "") == me
+                           or any(str(b.get("bidder") or "").replace("-", "") == me for b in a.get("bids") or [])):
+                    mine.append(a)
                 if not a.get("bin") or a.get("claimed"):
                     continue
                 uid = a.get("uuid")
@@ -233,8 +238,38 @@ class ActiveAHJob(Job):
             c.executemany(UPSERT_HOURLY, bar_rows)
             Database.set_meta(c, "active_last", ts)
         n_deals = self.find_deals(c, listings, ts)
-        _status(self.name_, last_ts=ts, pages=pages, items=len(listings), deals=n_deals)
+        if me:
+            self.update_fcf(c, mine, ts)
+        _status(self.name_, last_ts=ts, pages=pages, items=len(listings), deals=n_deals, my_auctions=len(mine))
         log.info("active auctions: %d pages, %d distinct BIN items, %d deals", pages, len(listings), n_deals)
+
+    def my_uuid(self) -> str | None:
+        """Your Minecraft UUID (no dashes) from player_name, looked up once via Mojang."""
+        if not self.cfg.track_positions or not self.cfg.player_name:
+            return None
+        if getattr(self, "_me", None) is None:
+            try:
+                self._me = self.api.uuid_of(self.cfg.player_name).replace("-", "").lower()
+            except Exception as e:                    # retry next scan
+                log.warning("could not look up %s's UUID: %s", self.cfg.player_name, e)
+                return None
+        return self._me
+
+    def update_fcf(self, c, mine: list[dict], ts: int) -> None:
+        from . import fcf
+        from .valuation import Prices
+        prices = Prices.from_db(c)
+        models: dict = {}
+
+        def value(key, iid, attrs):
+            return fcf.item_value(c, key, iid, attrs, prices, models)
+
+        positions = fcf.positions_from_auctions(mine, self._me, decode_listing, value, ts)
+        summary = fcf.summarize(positions, fcf.latest_wallet(c), self.cfg.bids_already_in_purse)
+        with self.db.write_lock, c:
+            fcf.store(c, ts, positions, summary)
+        log.info("potential FCF %.0f (wallet %s, sales %.0f, winning bids %.0f -> %.0f, refunds %.0f)", summary["fcf"],
+                 summary["wallet"], summary["sales"], summary["bids"], summary["expected"], summary["refunds"])
 
     def fit_models(self, c, listings: dict, ts: int, prices) -> dict:
         """Clean-base / pet-level models per item, refitted every 30 min from 72 h of sales + current listings."""

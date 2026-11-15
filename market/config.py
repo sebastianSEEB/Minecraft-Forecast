@@ -36,6 +36,8 @@ class Config:
     hypixel_api_key: str = ""
     wallet_interval: int = 3600
     publish_wallet: bool = True        # show the Wallet tab on the public dashboard
+    track_positions: bool = True       # your AH listings + bids from every full AH scan -> potential FCF (market/fcf.py)
+    bids_already_in_purse: bool = True # Hypixel takes bid coins when you bid, so they aren't subtracted from the wallet again
 
     # Local server the Minecraft mod talks to
     server_host: str = "127.0.0.1"

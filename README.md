@@ -191,6 +191,21 @@ Two sources, both optional:
 The Wallet tab is on the public dashboard. Set `"publish_wallet": false` in config.json to keep it local only
 (http://127.0.0.1:8765/dashboard/ still shows it).
 
+### Potential free cash flow (`market/fcf.py`)
+The coins you'd have if everything you have going on the AH settled now:
+
+    Potential FCF = wallet (purse + bank)
+                  + ongoing sales         your listings at their price, after the 1 % claim tax (listing fee already paid)
+                  − ongoing bids          coins in auctions you're winning
+                  + expected sale value   what you're winning resells for (its own value, incl. upgrades), after fees
+                  + outbid refunds        coins from bids you've lost, waiting to be collected
+
+Hypixel takes a bid's coins from your purse when you place it, so by default (`bids_already_in_purse: true`) the
+winning bids are shown but not subtracted from the wallet a second time. Set it to `false` to subtract them.
+**Conservative FCF** values each listing at min(listed price, estimated value), since an overpriced listing may
+not sell at its price. Your listings and bids are found in every full AH scan (every 5 min) using `player_name`;
+the Wallet tab shows the waterfall, the FCF line over time and every open position. Turn off with `track_positions: false`.
+
 ## Dashboard
 Static site (`dashboard/` + JSON exported by `market/publish.py`) on the `gh-pages` branch. It shows:
 * tracked items, AH sales and coins traded in the last 24h, and how much history has been collected
@@ -231,6 +246,7 @@ python tests/test_quickbin.py     # 30-second lowest-BIN re-check
 python tests/test_deals.py        # underpriced BIN finder (incl. pet levels)
 python tests/test_valuation.py    # upgrade parsing, component prices, clean base and pet-level fits
 python tests/test_wallet.py       # wallet parsing, mod + API merge, KPIs
+python tests/test_fcf.py          # potential FCF: your listings, bids, refunds, conservative value
 python tests/test_e2e.py          # fake Hypixel API → collector → DB → server → HUD
 python tests/fake_hypixel.py      # run the fake API yourself (set api_base in config.json)
 ```
