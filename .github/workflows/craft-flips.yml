@@ -1,0 +1,50 @@
+name: Craft flips
+
+# Live craft-flip ranking (tools/craft_flips.py): NEU recipes + Hypixel bazaar + full AH + SkyCofl volume.
+# Publishes data/craft_flips.json to GitHub Pages.
+
+on:
+  workflow_dispatch:
+    inputs:
+      budget:
+        description: "Coins you can put in"
+        default: "35000000"
+  schedule:
+    - cron: "41 */3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages-positions
+  cancel-in-progress: false
+
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Get NEU recipes
+        run: git clone -q --depth 1 https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO.git neu
+      - name: Rank craft flips
+        run: python tools/craft_flips.py neu out "${{ inputs.budget || '35000000' }}" | tee -a $GITHUB_STEP_SUMMARY
+      - name: Publish craft_flips.json to gh-pages
+        run: |
+          for attempt in 1 2 3; do
+            rm -rf site && git clone -q --depth 2 --branch gh-pages \
+              "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" site || exit 1
+            mkdir -p site/data && cp out/craft_flips.json site/data/
+            cd site
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/craft_flips.json
+            if [ "$(git log -1 --format=%s)" = "positions update" ]; then git commit -q --amend -m "positions update"; \
+            else git commit -q -m "positions update"; fi
+            if git push -q --force-with-lease origin gh-pages; then exit 0; fi
+            cd .. && sleep 10
+          done
+          exit 1
