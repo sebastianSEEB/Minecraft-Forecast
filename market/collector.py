@@ -16,7 +16,9 @@ import traceback
 from .config import Config
 from .db import HOUR_MS, Database
 from .hypixel import HypixelClient
-from .items import key_and_count
+import json
+
+from .items import decode_listing, key_and_count
 
 log = logging.getLogger("collector")
 
@@ -149,7 +151,7 @@ class EndedJob(Job):
         rows, touched, bad = [], set(), 0
         for a in data.get("auctions", []):
             try:
-                key, item_id, count = key_and_count(a["item_bytes"])
+                key, item_id, count, attrs = decode_listing(a["item_bytes"])
             except Exception:
                 bad += 1
                 continue
@@ -160,12 +162,12 @@ class EndedJob(Job):
                 continue
             ts = int(a.get("timestamp") or data.get("lastUpdated") or time.time() * 1000)
             rows.append((a["auction_id"], ts, key, item_id, price, count, price / count, int(bool(a.get("bin"))),
-                         a.get("seller"), a.get("buyer")))
+                         a.get("seller"), a.get("buyer"), json.dumps(attrs, separators=(",", ":")) if attrs else None))
         new = 0
         with self.db.write_lock, c:
             for r in rows:
-                cur = c.execute("INSERT OR IGNORE INTO ah_sale(auction_id, ts, item_key, item_id, price, count, unit_price, bin, seller, buyer) "
-                                "VALUES(?,?,?,?,?,?,?,?,?,?)", r)
+                cur = c.execute("INSERT OR IGNORE INTO ah_sale(auction_id, ts, item_key, item_id, price, count, unit_price, bin, seller, buyer, attrs) "
+                                "VALUES(?,?,?,?,?,?,?,?,?,?,?)", r)
                 if cur.rowcount:
                     new += 1
                     touched.add((r[2], r[1] // HOUR_MS))
@@ -200,17 +202,17 @@ class ActiveAHJob(Job):
                 seen.add(uid)
                 if uid not in self.decoded:
                     try:
-                        k, _, cnt = key_and_count(a["item_bytes"])
+                        k, iid, cnt, attrs = decode_listing(a["item_bytes"])
                     except Exception:
-                        k, cnt = None, 1
-                    self.decoded[uid] = (k, cnt)
-                k, cnt = self.decoded[uid]
+                        k, iid, cnt, attrs = None, None, 1, {}
+                    self.decoded[uid] = (k, cnt, iid, attrs)
+                k, cnt, iid, attrs = self.decoded[uid]
                 if not k:
                     continue
                 unit = float(a.get("starting_bid") or 0) / cnt
                 if unit <= 0:
                     continue
-                listings.setdefault(k, []).append((unit, a.get("auctioneer"), uid, cnt, float(a.get("starting_bid") or 0)))
+                listings.setdefault(k, []).append((unit, a.get("auctioneer"), uid, cnt, float(a.get("starting_bid") or 0), iid, attrs))
         self.decoded = {u: v for u, v in self.decoded.items() if u in seen}
         hour = ts // HOUR_MS
         now_rows, bar_rows = [], []
@@ -234,35 +236,72 @@ class ActiveAHJob(Job):
         _status(self.name_, last_ts=ts, pages=pages, items=len(listings), deals=n_deals)
         log.info("active auctions: %d pages, %d distinct BIN items, %d deals", pages, len(listings), n_deals)
 
-    def find_deals(self, c, listings: dict, ts: int) -> int:
-        """BINs at least deal_min_discount under fair value, worth >= deal_min_value, still profitable after fees."""
-        from .marketcheck import auction_check, net_after_fees
-        cfg = self.cfg
+    def fit_models(self, c, listings: dict, ts: int, prices) -> dict:
+        """Clean-base / pet-level models per item, refitted every 30 min from 72 h of sales + current listings."""
+        from .valuation import fit_model
+        models = {}
+        cached = {r["item_key"]: (r["ts"], r["model"]) for r in c.execute("SELECT item_key, ts, model FROM models")}
         rows = []
         for k, lst in listings.items():
-            lst = sorted(lst)
-            cheapest = lst[0][0]
+            hit = cached.get(k)
+            if hit and ts - hit[0] < 1_800_000:
+                models[k] = json.loads(hit[1]) if hit[1] else None
+                continue
+            sales = c.execute("SELECT unit_price, attrs, item_id FROM ah_sale WHERE item_key=? AND ts>? ORDER BY ts DESC LIMIT 400",
+                              (k, ts - 3 * 86_400_000)).fetchall()
+            if len(sales) < 5:
+                sales = c.execute("SELECT unit_price, attrs, item_id FROM ah_sale WHERE item_key=? AND ts>? ORDER BY ts DESC LIMIT 400",
+                                  (k, ts - 7 * 86_400_000)).fetchall()
+            iid = next((x[5] for x in lst if x[5]), None) or (sales[0]["item_id"] if sales else None)
+            m = fit_model(k, iid, [(r["unit_price"], json.loads(r["attrs"]) if r["attrs"] else {}) for r in sales],
+                          [(x[0], x[6]) for x in lst], prices)
+            if m:
+                m["item_id"] = iid
+            models[k] = m
+            rows.append((k, ts, iid, json.dumps(m) if m else None))
+        with self.db.write_lock, c:
+            c.executemany("INSERT OR REPLACE INTO models VALUES(?,?,?,?)", rows)
+        return models
+
+    def find_deals(self, c, listings: dict, ts: int) -> int:
+        """BINs at least deal_min_discount under THEIR OWN estimated value (base + upgrades, pet level),
+        worth >= deal_min_value, and still profitable after fees vs the next-cheapest comparable listing."""
+        from .marketcheck import auction_check, net_after_fees
+        from .valuation import Prices, components, pet_fraction, value_of
+        cfg = self.cfg
+        prices = Prices.from_db(c)
+        models = self.fit_models(c, listings, ts, prices)
+        rows = []
+        for k, lst in listings.items():
             hit = self.fair_cache.get(k)
             if hit is None or time.time() - hit[0] > 1800:
                 hit = (time.time(), auction_check(c, k, ts))
                 self.fair_cache[k] = hit
             m = hit[1]
-            fair = m.get("fair")
-            if not fair or m.get("risk", 0) >= 2 or m.get("sales_72h", 0) < cfg.deal_min_sales_72h:
+            if m.get("risk", 0) >= 2 or m.get("sales_72h", 0) < cfg.deal_min_sales_72h:
                 continue
-            if cheapest > fair * (1 - cfg.deal_min_discount):
-                continue
-            for i, (unit, seller, uid, cnt, total) in enumerate(lst):
-                if unit > fair * (1 - cfg.deal_min_discount):
-                    break
-                if fair * cnt < cfg.deal_min_value:
+            model = models.get(k)
+            priced = []                                  # (unit, value, base-equivalent price, listing)
+            for x in lst:
+                unit, attrs, iid = x[0], x[6], x[5]
+                if model:
+                    val, _ = value_of(model, k, iid, attrs, prices)
+                    extra = val - (model["v1"] if model["type"] == "pet" else model["base"])
+                else:
+                    val, extra = m.get("fair") or 0, 0.0
+                if val > 0:
+                    priced.append((unit, val, unit - extra, x))
+            priced.sort(key=lambda p: p[2])              # cheapest relative to its own upgrades first
+            for i, (unit, val, beq, x) in enumerate(priced):
+                _, seller, uid, cnt, total, iid, attrs = x
+                if unit > val * (1 - cfg.deal_min_discount) or val * cnt < cfg.deal_min_value:
                     continue
-                competitor = lst[1][0] if i == 0 and len(lst) > 1 else (lst[0][0] if i > 0 else unit * 1.05)
-                resale = min(fair, competitor * 0.99)
-                profit = (net_after_fees(resale * cnt) - total)
+                others = [p[2] for j, p in enumerate(priced) if j != i]
+                resale = min(val, ((min(others) + (unit - beq)) if others else unit * 1.05) * 0.99)
+                profit = net_after_fees(resale * cnt) - total
                 if profit <= 0:
                     continue
-                rows.append((uid, k, ts, ts, total, cnt, unit, fair, 1 - unit / fair, resale, profit, seller, len(lst),
+                rows.append((uid, k, ts, ts, total, cnt, unit, val, 1 - unit / val, resale, profit, seller, len(lst),
                              m.get("sales_72h", 0)))
         with self.db.write_lock, c:
             keep = [r[0] for r in rows]
@@ -361,6 +400,19 @@ class WalletJob(Job):
         log.info("wallet: %s purse %.0f bank %s total %.0f", self.cfg.player_name, w["purse"], w["bank"], w["total"])
 
 
+class ResourcesJob(Job):
+    """Once a day: star (essence) upgrade costs per item from Hypixel's public items resource."""
+    name_ = "resources"
+    interval = 86_400
+
+    def tick(self, c):
+        data = self.api.items_resource()
+        costs = {it["id"]: it["upgrade_costs"] for it in data.get("items", []) if it.get("upgrade_costs") and it.get("id")}
+        with self.db.write_lock, c:
+            Database.set_meta(c, "upgrade_costs", json.dumps(costs, separators=(",", ":")))
+        _status(self.name_, items_with_stars=len(costs))
+
+
 class MaintenanceJob(Job):
     name_ = "maintenance"
     interval = 3600
@@ -399,7 +451,8 @@ class PublishJob(Job):
 
 def start_all(cfg: Config, db: Database, stop: threading.Event) -> list[Job]:
     api = HypixelClient(cfg.api_base, cfg.user_agent)
-    jobs = [BazaarJob(cfg, db, api, stop), EndedJob(cfg, db, api, stop), MaintenanceJob(cfg, db, api, stop)]
+    jobs = [BazaarJob(cfg, db, api, stop), EndedJob(cfg, db, api, stop), MaintenanceJob(cfg, db, api, stop),
+            ResourcesJob(cfg, db, api, stop)]
     if cfg.active_ah_interval > 0:
         jobs.append(ActiveAHJob(cfg, db, api, stop))
     if cfg.quick_bin_interval > 0:

@@ -16,7 +16,7 @@ import net.minecraft.world.item.component.CustomData;
  *
  *   normal item              -> SkyBlock id                 HYPERION, ENCHANTED_DIAMOND
  *   enchanted book, 1 ench   -> ENCHANTMENT_NAME_LEVEL      ENCHANTMENT_ULTIMATE_WISE_5
- *   pet                      -> PET_TYPE_TIER               PET_ENDER_DRAGON_LEGENDARY
+ *   pet                      -> PET_TYPE_TIER               PET_ENDER_DRAGON_LEGENDARY  (real rarity if tier boosted)
  */
 final class ItemKeys {
 	private ItemKeys() {}
@@ -44,8 +44,10 @@ final class ItemKeys {
 			try {
 				JsonObject pet = JsonParser.parseString(info).getAsJsonObject();
 				if (pet.has("type") && pet.has("tier")) {
+					String held = pet.has("heldItem") && !pet.get("heldItem").isJsonNull() ? pet.get("heldItem").getAsString() : null;
+					// a Tier Boost shows one rarity higher; priced as the real rarity + the boost (same rule as market/items.py)
 					return "PET_" + pet.get("type").getAsString().toUpperCase(Locale.ROOT)
-							+ "_" + pet.get("tier").getAsString().toUpperCase(Locale.ROOT);
+							+ "_" + Valuation.realPetTier(pet.get("tier").getAsString().toUpperCase(Locale.ROOT), held);
 				}
 			} catch (RuntimeException ignored) {
 				// malformed petInfo: fall back to the plain id

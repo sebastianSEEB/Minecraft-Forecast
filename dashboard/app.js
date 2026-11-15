@@ -197,9 +197,15 @@ function marketCheck(d) {
        <span>Cheapest 25% listed <b>${fmt(L.p25)}</b></span><span>7-day avg <b>${fmt(m.avg_7d)}</b></span><span>Realistic resale <b>${fmt(m.resale)}</b></span>`;
   const row2 = bz || !m.listed ? "" : `<div class="row" style="margin-top:6px"><span>Listed <b>${L.count}</b> by <b>${L.sellers}</b> sellers</span><span>Lowest <b>${fmt(L.lowest)}</b></span>
        <span>2nd <b>${fmt(L.second)}</b></span><span>Median listed <b>${fmt(L.median)}</b></span><span>Top seller share <b>${L.top_share != null ? Math.round(L.top_share * 100) + "%" : "–"}</b></span></div>`;
+  const md = m.model, mtier = d.k.startsWith("PET_") ? d.k.split("_").pop().toLowerCase() : "";
+  const row3 = !md ? "" : md.type === "pet"
+    ? `<div class="row" style="margin-top:6px"><span>By level (${esc(mtier)}) <b>Lvl 1 ≈ ${fmt(md.v1)}</b></span><span><b>Max level ≈ ${fmt(md.v100)}</b></span>
+       <span class="muted">value = level 1 + XP share × (max − level 1), + held item + skin · ${md.n_sales} sales</span></div>`
+    : `<div class="row" style="margin-top:6px"><span>Clean copy (no upgrades) <b>${fmt(md.base)}</b></span>
+       <span class="muted">upgrades added on top: enchants, stars, recomb (+1 rarity), potato books, gems, art of war · ${md.n_sales} sales</span></div>`;
   const flags = (m.flags || []).length ? `<ul>${m.flags.map(f => `<li class="l${f.level}">${f.level >= 2 ? "⚠ " : ""}${esc(f.text)}</li>`).join("")}</ul>`
     : '<div class="small" style="margin-top:6px;color:var(--good)">✔ No signs of manipulation</div>';
-  return `<div class="mcheck"><div class="small muted" style="margin-bottom:6px">Market check</div><div class="row">${row1}</div>${row2}${flags}</div>`;
+  return `<div class="mcheck"><div class="small muted" style="margin-bottom:6px">Market check</div><div class="row">${row1}</div>${row2}${row3}${flags}</div>`;
 }
 function seasonChips(d) {
   const conf = (d && d.seasons || []).filter(x => x.confirmed);

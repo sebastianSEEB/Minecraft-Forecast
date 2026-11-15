@@ -110,6 +110,11 @@ final class Verdict {
 	}
 
 	static Result evaluate(JsonObject d, Listing listing, Double liveBuy, SkyPriceConfig cfg) {
+		return evaluate(d, listing, liveBuy, cfg, null);
+	}
+
+	/** @param est value of this exact copy (enchants, stars, recomb, gems, pet level/rarity…), or null */
+	static Result evaluate(JsonObject d, Listing listing, Double liveBuy, SkyPriceConfig cfg, Valuation.Estimate est) {
 		List<Component> out = new ArrayList<>();
 		Component banner = null;
 		Double suggestedBid = null, maxBidOut = null, nextBidOut = null, bidCapOut = null;
@@ -134,6 +139,10 @@ final class Verdict {
 			fair = mf != null ? mf : fairAuction(d);
 			what = listing == null ? "Cheapest BIN" : listing.bin() ? "This BIN" : listing.bids() ? "Current bid" : "Starting bid";
 			basis = "fair value";
+			if (est != null && est.value() > 0 && listing != null) {
+				fair = est.value();                                   // what THIS listed copy is worth, upgrades included
+				basis = "this copy's value";
+			}
 		}
 		if (price == null || fair == null || fair <= 0) return new Result(out, null);
 
@@ -170,10 +179,28 @@ final class Verdict {
 							"  median ", HudFormatter.GRAY, HudFormatter.fmt(HudFormatter.num(li, "median")), HudFormatter.WHITE));
 				}
 			}
+			if (est != null) out.addAll(Valuation.lines(est));
 			Double resale = HudFormatter.num(market, "resale");          // assumes you bought the cheapest BIN
 			Double lowest = HudFormatter.num(HudFormatter.obj(market, "listed"), "lowest");
 			boolean notCheapest = listing != null && lowest != null && (!listing.bin() || listing.price() > lowest * 1.001);
-			if (notCheapest) resale = Math.min(fair, lowest * 0.99);       // the cheapest BIN is still out there to compete with
+			boolean upgraded = est != null && (est.attrs().pet || est.extras() > 0.05 * est.value());
+			if (listing == null && est != null && (upgraded || est.attrs().hasUpgrades())) {
+				// your own copy: what to list it for
+				double lowClean = lowest != null ? Math.max(lowest, est.base()) : est.base();
+				double ask = Math.min(est.value(), lowClean * 0.99 + est.extras());
+				out.add(HudFormatter.line("    sell this copy: list at ≈ ", HudFormatter.GRAY, HudFormatter.fmt(ask), 0x55FF55,
+						"  (you get " + HudFormatter.fmt(netAfterFees(ask)) + " after fees)", HudFormatter.DARK));
+			}
+			if (upgraded && listing != null) {
+				// the cheapest BIN is usually a different (clean / lower level) copy: compete with its clean-equivalent
+				// price plus this copy's upgrades, never above this copy's value
+				double cleanLowest = lowest != null ? lowest : est.base();
+				resale = Math.min(est.value(), Math.max(cleanLowest, est.base()) * 0.99 + est.extras()) * 0.99;
+			} else if (notCheapest) {
+				resale = Math.min(fair, lowest * 0.99);                   // the cheapest BIN is still out there to compete with
+			} else if (listing != null && est != null && resale != null) {
+				resale = Math.min(resale, est.value());
+			}
 			double sellAt = resale != null ? resale : fair;
 			double net = netAfterFees(sellAt);
 

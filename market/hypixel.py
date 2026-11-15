@@ -55,5 +55,8 @@ class HypixelClient:
     def profiles(self, uuid: str, key: str) -> dict:
         return self._get(f"/skyblock/profiles?uuid={uuid}", key=key)
 
+    def items_resource(self) -> dict:
+        return self._get("/resources/skyblock/items")
+
     def auctions_page(self, page: int) -> dict:
         return self._get(f"/skyblock/auctions?page={page}")

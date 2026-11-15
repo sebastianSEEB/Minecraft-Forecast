@@ -12,6 +12,7 @@ Used for: data/items/<KEY>.json on the dashboard (GitHub Pages), the local serve
 """
 from __future__ import annotations
 
+import json
 import math
 import statistics
 import time
@@ -211,6 +212,10 @@ def item_detail(c, key: str, cfg: Config, now_ms: int | None = None, summary: di
 
     # fair value (sold + listed), realistic resale, manipulation flags
     mk = round_all(bazaar_check(c, key, now_ms) if bz else auction_check(c, key, now_ms))
+    if not bz:
+        row = c.execute("SELECT model FROM models WHERE item_key=?", (key,)).fetchone()
+        if row and row[0]:
+            mk["model"] = round_all(json.loads(row[0]))         # clean base / pet L1-L100 (see market/valuation.py)
     doc["market"] = mk
     summary["fair"] = mk.get("fair")
     summary["risk"] = mk.get("risk", 0)

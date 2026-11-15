@@ -95,6 +95,11 @@ final class HudFormatter {
 
 	/** Tooltip lines + optional "PROFIT FLIP / WORTH BIDDING" banner. @param listing the hovered auction, or null */
 	static Verdict.Result render(JsonObject d, DataClient.Live live, SkyPriceConfig cfg, Verdict.Listing listing) {
+		return render(d, live, cfg, listing, null);
+	}
+
+	/** @param est value of the hovered copy (upgrades, pet level, rarity), or null */
+	static Verdict.Result render(JsonObject d, DataClient.Live live, SkyPriceConfig cfg, Verdict.Listing listing, Valuation.Estimate est) {
 		List<Component> out = new ArrayList<>();
 		Component banner = null;
 		Verdict.Result verdict = null;
@@ -132,7 +137,7 @@ final class HudFormatter {
 				out.add(line(" No sales in the last 24h", GRAY));
 			}
 			if (cfg.showVerdict) {
-				Verdict.Result v = Verdict.evaluate(d, listing, null, cfg);
+				Verdict.Result v = Verdict.evaluate(d, listing, null, cfg, est);
 				out.addAll(v.lines());
 				banner = v.banner();
 				verdict = v;

@@ -145,8 +145,34 @@ replaces that snapshot as soon as it publishes.
 
 ### Item keys
 Normal items use their SkyBlock id (`HYPERION`). Single-enchant books become `ENCHANTMENT_<NAME>_<LEVEL>`,
-which is the same as the bazaar id. Pets become `PET_<TYPE>_<TIER>`. Reforges, stars, recombs and enchants
-on gear are **not** split out yet, so a 5-star Hyperion and a clean one share one price series.
+which is the same as the bazaar id. Pets become `PET_<TYPE>_<TIER>`, one series per rarity; a pet holding a
+Tier Boost is keyed by its real rarity (the boost is valued as its held item).
+
+### Valuing each copy: enchants, stars, recomb, rarity, pet level (`market/valuation.py`, `Valuation.java`)
+Two copies of the same item can be worth very different amounts, so each copy is valued from its own data:
+
+    value = clean base + Σ upgrade price × factor
+    pets:  value = L1 + (Lmax − L1) × XP / XP-to-max  + held item + skin
+
+| Upgrade | Priced as | Factor |
+|---|---|---|
+| enchantments (≥ 200k each) | the enchanted book (bazaar, else lowest BIN) | 0.85 |
+| recombobulator (+1 rarity) | RECOMBOBULATOR_3000 | 0.85 |
+| hot / fuming potato books | first 10 hot, rest fuming | 1.0 / 0.85 |
+| stars | the item's real essence + item cost per star (Hypixel items resource), master stars above max | 0.9 / 0.95 |
+| gemstones | `<QUALITY>_<TYPE>_GEM` | 1.0 |
+| art of war | THE_ART_OF_WAR | 0.85 |
+| pet held item / skin | lowest BIN / bazaar | 0.9 / 0.8 |
+
+Factors are below 1 because upgrades rarely resell for what they cost. The **clean base** is fitted from real
+sales by subtracting every sale's upgrades (median of the remainders, mixed with the cheapest-25% listing). For
+pets, **L1 and Lmax** come from a regression of price (minus held item and skin) on XP share, using Lecture 4's
+b̂ = (Σxy − ΣxΣy/n)/(Σx² − (Σx)²/n), â = ȳ − b̂x̄. Level-200 pets (Golden/Jade/Rose Dragon) use the level-200 XP curve.
+
+The underpriced-BIN scan compares each listing with **its own** value, so a level-1 pet at a normal level-1 price
+is not a deal and a level-100 at that price is. In game, the tooltip shows `this copy ≈ 152M = clean 120M + stars …`,
+the rarity (recombobulated / tier-boosted) and, for your own items, what to list them for. The models build up as
+the collector records sales with their upgrades (from version 1.9.0 on).
 
 ## Wallet (your coins, hourly)
 Dashboard → **Wallet** tab shows:
@@ -194,7 +220,7 @@ profile.
 ## Local server endpoints
 `/itemdata/<KEY>` item document (what the mod reads) · `/lbin?keys=A,B` fresh lowest BIN (watch list) · `/hud/<KEY>` tooltip lines · `/item/<KEY>` stats JSON (incl. every horizon's model leaderboard) ·
 `/history/<series>?hours=168` hourly bars (`bz:<ID>:buy`, `bz:<ID>:sell`, `ah:<KEY>`, `lbin:<KEY>`) ·
-`/search?q=` · `/health`
+`/components` upgrade prices + valuation constants (also published as `data/components.json`) · `/search?q=` · `/health`
 
 ## Tests
 ```
@@ -202,7 +228,8 @@ python tests/test_forecast.py     # formulas vs. lecture examples
 python tests/test_seasonality.py  # cycle detection, false-positive rate, SkyBlock calendar
 python tests/test_market.py       # fair value + manipulation scenarios
 python tests/test_quickbin.py     # 30-second lowest-BIN re-check
-python tests/test_deals.py        # underpriced BIN finder
+python tests/test_deals.py        # underpriced BIN finder (incl. pet levels)
+python tests/test_valuation.py    # upgrade parsing, component prices, clean base and pet-level fits
 python tests/test_wallet.py       # wallet parsing, mod + API merge, KPIs
 python tests/test_e2e.py          # fake Hypixel API → collector → DB → server → HUD
 python tests/fake_hypixel.py      # run the fake API yourself (set api_base in config.json)

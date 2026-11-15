@@ -38,6 +38,10 @@ final class DataClient {
 	private volatile long localDownUntil = 0;
 	private volatile long remoteDownUntil = 0;
 
+	private volatile JsonObject components;
+	private volatile long componentsFetchedAt = 0;
+	private volatile boolean componentsLoading = false;
+
 	private volatile Map<String, Live> bazaar = Map.of();
 	private volatile long bazaarFetchedAt = 0;
 	private volatile boolean bazaarLoading = false;
@@ -87,6 +91,28 @@ final class DataClient {
 			JsonElement el = JsonParser.parseString(resp.body());
 			return el.isJsonArray() ? el.getAsJsonArray() : null;
 		});
+	}
+
+	/**
+	 * Upgrade prices + valuation constants (market/valuation.py components_doc): local collector /components,
+	 * else {dataUrl}/components.json. Refreshed every 10 min; null until the first fetch completes.
+	 */
+	JsonObject components() {
+		long now = System.currentTimeMillis();
+		if (now - componentsFetchedAt > (components == null ? 30_000L : 600_000L) && !componentsLoading) {
+			componentsLoading = true;
+			CompletableFuture<JsonObject> local = (cfg.localServer == null || cfg.localServer.isBlank())
+					? CompletableFuture.completedFuture(null)
+					: getJson(cfg.localServer + "/components", 3).handle((j, e) -> e != null ? null : j);
+			local.thenCompose(j -> j != null || cfg.dataUrl == null || cfg.dataUrl.isBlank() ? CompletableFuture.completedFuture(j)
+							: getJson(cfg.dataUrl + "/components.json", 15).handle((r, e) -> e != null ? null : r))
+					.whenComplete((j, e) -> {
+						if (j != null) components = j;
+						componentsFetchedAt = System.currentTimeMillis();
+						componentsLoading = false;
+					});
+		}
+		return components;
 	}
 
 	boolean isLoading(String key) {

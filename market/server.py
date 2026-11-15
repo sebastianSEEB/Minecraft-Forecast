@@ -138,6 +138,9 @@ def make_handler(cfg: Config, db: Database):
                     rows = conn().execute("SELECT hour, avg, median, high, low, n, volume FROM hourly WHERE series=? AND hour>? ORDER BY hour",
                                           (parts[1], now_h - hours)).fetchall()
                     return self._send(200, [dict(r) | {"ts": r["hour"] * HOUR_MS} for r in rows])
+                if parts[0] == "components":
+                    from .valuation import components_doc
+                    return self._send(200, components_doc(conn()))
                 if parts[0] == "wallet":
                     from .wallet import wallet_report
                     return self._send(200, wallet_report(conn(), int(time.time() * 1000)) or {})

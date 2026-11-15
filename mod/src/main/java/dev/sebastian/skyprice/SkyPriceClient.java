@@ -31,13 +31,14 @@ public final class SkyPriceClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		config = SkyPriceConfig.load();
 		data = new DataClient(config);
+		Valuation.init(data);
 
 		ItemTooltipCallback.EVENT.register((stack, tooltipContext, tooltipFlag, lines) -> {
 			if (!config.enabled) return;
 			String key = ItemKeys.keyFor(stack);
 			if (key == null) return;                       // not a SkyBlock item
 			Verdict.Listing listing = config.showVerdict ? Verdict.listing(lines, stack.getCount()) : null;
-			Verdict.Result r = resultFor(key, listing);
+			Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null);
 			if (r == null || r.lines().isEmpty()) return;
 			if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
 			if (r.nextBid() != null && r.bidCap() != null && r.maxBid() != null)
@@ -126,13 +127,15 @@ public final class SkyPriceClient implements ClientModInitializer {
 								}))));
 	}
 
-	private static Verdict.Result resultFor(String key, Verdict.Listing listing) {
+	private static Verdict.Result resultFor(String key, Verdict.Listing listing, Valuation.Attrs attrs) {
 		DataClient.Doc d = data.doc(key);
 		if (d == null) return new Verdict.Result(LOADING, null);
 		if (d.json() == null) return null;            // item never traded / not published
 		try {
-			DataClient.Live live = "bz".equals(d.json().get("kind").getAsString()) ? data.live(key) : null;
-			return HudFormatter.render(d.json(), live, config, listing);
+			boolean bz = "bz".equals(d.json().get("kind").getAsString());
+			DataClient.Live live = bz ? data.live(key) : null;
+			Valuation.Estimate est = bz ? null : Valuation.estimate(d.json(), key, attrs);
+			return HudFormatter.render(d.json(), live, config, listing, est);
 		} catch (RuntimeException e) {
 			return null;
 		}

@@ -82,9 +82,10 @@ final class Highlight {
 			if (listing == null) return 0;                         // not an auction listing
 			DataClient.Doc d = data.doc(key);
 			if (d == null || d.json() == null) return 0;
-			Verdict.Result r = Verdict.evaluate(d.json(), listing, null, cfg);
+			Valuation.Estimate est = cfg.valueUpgrades ? Valuation.estimate(d.json(), key, Valuation.parse(stack)) : null;
+			Verdict.Result r = Verdict.evaluate(d.json(), listing, null, cfg, est);
 			if (r.banner() == null) return 0;                      // not profitable / not liquid / risky
-			Double fair = HudFormatter.num(HudFormatter.obj(d.json(), "market"), "fair");
+			Double fair = est != null ? Double.valueOf(est.value()) : HudFormatter.num(HudFormatter.obj(d.json(), "market"), "fair");
 			return fair != null && listing.price() <= fair * (1 - cfg.dealMinDiscountPercent / 100.0) ? 2 : 1;
 		} catch (RuntimeException e) {
 			return 0;

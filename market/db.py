@@ -41,12 +41,15 @@ CREATE TABLE IF NOT EXISTS wallet (            -- your coins over time
     purse REAL, bank REAL, personal_bank REAL, total REAL,
     PRIMARY KEY (ts, source)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS models (            -- fitted clean-base / pet-level value models (market/valuation.py)
+    item_key TEXT PRIMARY KEY, ts INTEGER, item_id TEXT, model TEXT
+);
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
 
 # Columns added after the first release; created on existing databases automatically.
 MIGRATIONS = {
-    "ah_sale": [("seller", "TEXT"), ("buyer", "TEXT")],
+    "ah_sale": [("seller", "TEXT"), ("buyer", "TEXT"), ("attrs", "TEXT")],
     "lbin_now": [("second_bin", "REAL"), ("p25", "REAL"), ("median_listed", "REAL"),
                  ("sellers", "INTEGER"), ("top_share", "REAL")],
 }

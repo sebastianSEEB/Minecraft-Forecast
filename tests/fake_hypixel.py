@@ -142,6 +142,8 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         if p.startswith("/v2/skyblock/bazaar"):
             body = bazaar_payload()
+        elif p.startswith("/v2/resources/skyblock/items"):
+            body = {"success": True, "items": [{"id": "HYPERION", "upgrade_costs": [[{"type": "ESSENCE", "essence_type": "WITHER", "amount": 150}]] * 5}]}
         elif p.startswith("/v2/skyblock/auctions_ended"):
             body = ended_payload()
         elif p.startswith("/v2/skyblock/auctions"):
