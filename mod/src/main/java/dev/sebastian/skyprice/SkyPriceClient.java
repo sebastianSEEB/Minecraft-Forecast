@@ -50,6 +50,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		Highlight.init(config, data);
 		OutbidHud.init(config);
 		FcfPanel.init(config, data);
+		Erp.init(config, data);
 		String version = net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer("skyprice")
 				.map(m -> m.getMetadata().getVersion().getFriendlyString()).orElse("?");
 		System.out.println("[SkyPrice] " + version + " loaded");
@@ -129,6 +130,47 @@ public final class SkyPriceClient implements ClientModInitializer {
 							data.walletReport().whenComplete((d, err) -> Minecraft.getInstance().execute(() -> {
 								for (Component c : FcfPanel.chat(d == null ? null : d.json(), d == null ? "no data" : d.source())) src.sendFeedback(c);
 							}));
+							return 1;
+						}))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("bz")
+								.executes(ctx -> {
+									ctx.getSource().sendFeedback(HudFormatter.line("[SkyPrice] Bazaar list: ", HudFormatter.GOLD,
+											String.join(", ", Erp.bazaarList()), HudFormatter.WHITE));
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] /skyprice bz add <id>  ·  /skyprice bz remove <id>  ·  /skyprice bz reset"));
+									return 1;
+								})
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("reset").executes(ctx -> {
+									config.bazaarWatch = new java.util.ArrayList<>(java.util.Arrays.asList(Erp.DEFAULT_BAZAAR));
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Bazaar list reset to stocks + candy."));
+									return 1;
+								}))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("add")
+										.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("id", StringArgumentType.greedyString())
+												.executes(ctx -> {
+													String id = StringArgumentType.getString(ctx, "id").trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+													java.util.List<String> l = Erp.bazaarList();
+													if (!l.contains(id)) l.add(id);
+													config.bazaarWatch = l;
+													config.save();
+													data.live(id);
+													ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Added " + id + " to the Bazaar list."));
+													return 1;
+												})))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("remove")
+										.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("id", StringArgumentType.greedyString())
+												.executes(ctx -> {
+													String id = StringArgumentType.getString(ctx, "id").trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+													java.util.List<String> l = Erp.bazaarList();
+													boolean removed = l.remove(id);
+													config.bazaarWatch = l;
+													config.save();
+													ctx.getSource().sendFeedback(Component.literal(removed ? "[SkyPrice] Removed " + id : "[SkyPrice] " + id + " wasn't on the list"));
+													return 1;
+												}))))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("erp").executes(ctx -> {
+							Erp.toggle();
+							ctx.getSource().sendFeedback(Component.literal(Erp.isOn() ? "[SkyPrice] ERP mode on: press E." : "[SkyPrice] ERP mode off."));
 							return 1;
 						}))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("unwatchall").executes(ctx -> {

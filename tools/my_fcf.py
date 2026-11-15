@@ -25,6 +25,10 @@ from market.publish import safe_name  # noqa: E402
 from market.valuation import Prices, value_of  # noqa: E402
 
 
+BAZAAR_WATCH = ["STOCK_OF_STONKS", "ULTIMATE_CARROT_CANDY", "SUPERB_CARROT_CANDY", "GREAT_CARROT_CANDY", "SIMPLE_CARROT_CANDY",
+                "PURPLE_CANDY", "GREEN_CANDY", "DARK_CANDY", "ROCK_CANDY"]
+
+
 def get_json(url):
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "skyprice-fcf"}), timeout=20) as r:
@@ -91,6 +95,23 @@ def main(name, out_dir, site="https://sebastianseeb.github.io/Minecraft-Forecast
         out["now"] = wallet_now
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     Path(out_dir, "positions.json").write_text(json.dumps(out))
+
+    # bazaar price history for the products you follow (stocks, candy, …): [ts, buy, sell] every run, 7 days
+    watch = [w.strip().upper() for w in os.environ.get("BAZAAR_WATCH", ",".join(BAZAAR_WATCH)).split(",") if w.strip()]
+    prev_bz = get_json(f"{site}/data/bazaar_watch.json?t={ts}") or {}
+    try:
+        products = api.bazaar().get("products") or {}
+    except Exception as e:
+        print("bazaar:", e)
+        products = {}
+    hist = {}
+    for pid in watch:
+        old = [r for r in (prev_bz.get("items") or {}).get(pid, []) if r[0] > ts - 7 * 86_400_000]
+        q = (products.get(pid) or {}).get("quick_status") or {}
+        if q:
+            old.append([ts, round(float(q.get("buyPrice") or 0), 1), round(float(q.get("sellPrice") or 0), 1)])
+        hist[pid] = old[-800:]
+    Path(out_dir, "bazaar_watch.json").write_text(json.dumps({"updated": ts, "items": hist}))
     print(f"{name}: {len(positions)} positions ({summary['n_sales']} selling, {summary['n_winning']} winning, "
           f"{summary['n_outbid']} outbid), on the AH {summary['on_ah']:,.0f}, wallet {wallet}")
 

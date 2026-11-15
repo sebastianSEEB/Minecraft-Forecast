@@ -214,6 +214,29 @@ position to open that auction, click ⟳ to refresh. `/skyprice fcf` prints it i
 publishes `data/positions.json` (valued with the published item models). The mod reads it whenever your PC collector
 isn't running and adds your live purse from the sidebar. Add a repository secret `HYPIXEL_API_KEY` to include the bank.
 
+### ERP mode in game (mod 1.12.0+)
+Click **ERP** (orange, left of the FCF button above your inventory) or type `/skyprice erp`. Your inventory screen turns
+into a console laid out like the RealGame / BioCounter plant: team name, clock, **PROFIT** gauge (expected margin on what
+you're winning) and **CASH** gauge (share of your coins that are free cash), an orange icon bar, and one window at a time:
+
+| RealGame window | SkyBlock version |
+|---|---|
+| Inventory | everything you have on the AH: (L)isted, (W)inning, (O)utbid, with cost and value |
+| Purchases | your bids as purchase orders: your bid, top bid, value, profit, time left |
+| Sales offers | your listings: price vs value, after the claim tax, flagged when above value |
+| Forthcoming events | auctions ending, soonest first (red within an hour) |
+| Deliver incoming orders | **Collect**: ended auctions and outbid coins to claim |
+| Investments & Funding | **Cash flow**: the potential-FCF waterfall |
+| Business Intelligence | General (FCF trend, last week / last 24h), Market Shares (pie of where your coins are), Reports (income statement of open positions) |
+| Coach | live warnings: overpriced listings, losses, outbid bids, too much tied up, stale data, deals |
+| Messages | outbid notices from chat |
+| Product development | **Bazaar**: your chosen products (default Stock of Stonks + carrot/Spooky candy) with live sell/buy, 24 h avg/high/low, spread and a 7-day chart |
+
+Click a row to open that auction (you act yourself); ✕ Exit ERP returns to the normal inventory. Change the bazaar list
+with `/skyprice bz add <id>`, `/skyprice bz remove <id>`, `/skyprice bz reset`. The GitHub AH job also records the
+bazaar list every 15 min (`data/bazaar_watch.json`, 7 days) so the chart works without your PC; set a repository
+variable `BAZAAR_WATCH` (comma-separated ids) to change what it records.
+
 ## Dashboard
 Static site (`dashboard/` + JSON exported by `market/publish.py`) on the `gh-pages` branch. It shows:
 * tracked items, AH sales and coins traded in the last 24h, and how much history has been collected

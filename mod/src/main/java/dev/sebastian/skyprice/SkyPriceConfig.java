@@ -38,7 +38,10 @@ final class SkyPriceConfig {
 
 	boolean outbidHud = true;         // panel right of your inventory with auctions you've been outbid on (click = open)
 	int outbidHours = 12;
-	boolean fcfButton = true;         // "FCF" button above your inventory: potential free cash flow panel
+	boolean fcfButton = true;
+	boolean erpButton = true;         // "ERP" button above your inventory: RealGame-style console for your AH trading
+	/** Bazaar products shown in the ERP "Bazaar" window and the FCF panel's Bazaar tab (/skyprice bz add|remove <id>). */
+	java.util.List<String> bazaarWatch = new java.util.ArrayList<>(java.util.Arrays.asList(Erp.DEFAULT_BAZAAR));         // "FCF" button above your inventory: potential free cash flow panel
 	boolean highlightDeals = true;    // yellow border on AH auctions worth buying/bidding (glow when >= 20 % under fair)
 	boolean reportPurse = true;       // send your purse (from the sidebar) to the PC collector for the Wallet tab
 	int purseReportSeconds = 300;
@@ -51,6 +54,14 @@ final class SkyPriceConfig {
 	boolean showSeasons = true;
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+	void save() {
+		try {
+			Files.writeString(FabricLoader.getInstance().getConfigDir().resolve("skyprice.json"), GSON.toJson(this), StandardCharsets.UTF_8);
+		} catch (IOException | RuntimeException e) {
+			System.err.println("[SkyPrice] could not save config: " + e);
+		}
+	}
 
 	static SkyPriceConfig load() {
 		Path file = FabricLoader.getInstance().getConfigDir().resolve("skyprice.json");

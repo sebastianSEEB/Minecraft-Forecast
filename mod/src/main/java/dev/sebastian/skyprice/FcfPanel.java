@@ -23,6 +23,7 @@ import net.minecraft.world.inventory.ChestMenu;
  * PC collector (/wallet), else the published wallet.json. Click a position to open that auction (you act yourself).
  */
 final class FcfPanel {
+	private static final int ERP_W = 28;
 	private static final int W = 168, BTN_W = 36, BTN_H = 14, ROW = 9, STEP = 12, POS_ROW = 19, MAX_POS = 8;
 	private static final int BG = 0xE0101418, EDGE = 0xFF3987E5, MUTED = 0xFF8A8A8A, TEXT = 0xFFFFFFFF,
 			POS = 0xFF3987E5, NEG = 0xFFE5534B, TOTAL = 0xFFB8B8B0, GOOD = 0xFF55FF55, GOLD = 0xFFFFAA00;
@@ -39,8 +40,8 @@ final class FcfPanel {
 	private static int posTop, posRowH = POS_ROW;
 	private static int tab;                     // 0 flow (waterfall), 1 tied up (pie), 2 trend (line)
 	private static boolean week = true;         // trend range: 7 days / 24 hours
-	private static final String[] TABS = {"Flow", "Tied up", "Trend"};
-	private static final int[] SLICE = {0xFF3987E5, 0xFF1BAF7A, 0xFFEDA100, 0xFFB07CF0, 0xFF8A8A8A};
+	private static final String[] TABS = {"Flow", "Tied up", "Trend", "Bazaar"};
+	static final int[] SLICE = {0xFF3987E5, 0xFF1BAF7A, 0xFFEDA100, 0xFFB07CF0, 0xFF8A8A8A};
 
 	private FcfPanel() {}
 
@@ -68,7 +69,7 @@ final class FcfPanel {
 	}
 
 	// ------------------------------------------------------------------ data
-	private static void refresh(boolean force) {
+	static void refresh(boolean force) {
 		long now = System.currentTimeMillis();
 		if (!force && now - requestedAt < 60_000) return;
 		requestedAt = now;
@@ -81,7 +82,7 @@ final class FcfPanel {
 		});
 	}
 
-	private static Double purse() {
+	static Double purse() {
 		long now = System.currentTimeMillis();
 		if (now - purseAt > 5000) {
 			purseAt = now;
@@ -98,7 +99,7 @@ final class FcfPanel {
 		return livePurse;
 	}
 
-	private static double d(JsonObject o, String k) {
+	static double d(JsonObject o, String k) {
 		Double v = HudFormatter.num(o, k);
 		return v == null ? 0 : v;
 	}
@@ -113,6 +114,12 @@ final class FcfPanel {
 		p.fill(bx, by, bx + 1, by + BTN_H, 0xFFFFAA00);
 		p.fill(bx + BTN_W - 1, by, bx + BTN_W, by + BTN_H, 0xFFFFAA00);
 		p.text("FCF ▸", bx + 5, by + 3, open ? TEXT : GOLD);
+		if (cfg.erpButton && s instanceof InventoryScreen) {
+			int ex = left(s) - ERP_W - 3;
+			p.fill(ex, by, ex + ERP_W, by + BTN_H, 0xFFFF5A00);
+			p.fill(ex, by + BTN_H - 1, ex + ERP_W, by + BTN_H, 0xFFFFD8C5);
+			p.text("ERP", ex + (ERP_W - Minecraft.getInstance().font.width("ERP")) / 2, by + 3, TEXT);
+		}
 		if (!open) return;
 		refresh(false);
 		int tx = bx + BTN_W + 3;
@@ -160,6 +167,10 @@ final class FcfPanel {
 		}
 		if (tab == 2) {
 			paintTrend(s, p, x, y, w, f, fcf, bank);
+			return;
+		}
+		if (tab == 3) {
+			paintBazaar(s, p, x, y, w);
 			return;
 		}
 		posRowH = POS_ROW;
@@ -298,14 +309,14 @@ final class FcfPanel {
 	}
 
 	/** Cut text to fit the width, with an ellipsis. */
-	private static String fit(String t, int maxW) {
+	static String fit(String t, int maxW) {
 		var font = Minecraft.getInstance().font;
 		if (font.width(t) <= maxW) return t;
 		while (t.length() > 1 && font.width(t + "…") > maxW) t = t.substring(0, t.length() - 1);
 		return t + "…";
 	}
 
-	private static String str(JsonObject o, String k) {
+	static String str(JsonObject o, String k) {
 		return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : null;
 	}
 
@@ -313,6 +324,11 @@ final class FcfPanel {
 	static boolean click(Screen s, double mx, double my) {
 		if (!active(s)) return false;
 		int bx = left(s), by = Math.max(1, top(s) - BTN_H - 2);
+		int ex = left(s) - ERP_W - 3;
+		if (cfg.erpButton && s instanceof InventoryScreen && mx >= ex && mx <= ex + ERP_W && my >= by && my <= by + BTN_H) {
+			Erp.toggle();
+			return true;
+		}
 		if (mx >= bx && mx <= bx + BTN_W && my >= by && my <= by + BTN_H) {
 			open = !open;
 			if (open) refresh(true);
@@ -409,13 +425,43 @@ final class FcfPanel {
 		lastHeight = h;
 	}
 
+	/** Compact bazaar list (stocks, candy, …): sell / buy now and change vs the 24 h average. */
+	private static void paintBazaar(Screen s, Highlight.Painter p, int x, int y, int w) {
+		var font = Minecraft.getInstance().font;
+		List<String> keys = Erp.bazaarList();
+		int h = 16 + 10 + keys.size() * 19 + 14;
+		y = Math.max(2, Math.min(y, s.height - h - 4));
+		frame(p, x, y, w, h);
+		p.text("Bazaar", x + 5, y + 4, GOLD);
+		String hd = "sell · buy";
+		p.text(hd, x + w - 5 - font.width(hd), y + 4, MUTED);
+		int ly = y + 18;
+		for (String k : keys) {
+			DataClient.Live live = data.live(k);
+			DataClient.Doc doc = data.doc(k);
+			Double avg = doc == null || doc.json() == null ? null : HudFormatter.num(HudFormatter.obj(doc.json(), "stats", "24h", "sell"), "avg");
+			p.text(fit(Erp.pretty(k), w - 10), x + 5, ly, 0xFFDDDDDD);
+			String v = live == null ? "…" : HudFormatter.fmt(live.sell()) + " · " + HudFormatter.fmt(live.buy());
+			p.text(v, x + w - 5 - font.width(v), ly + 9, TEXT);
+			if (live != null && avg != null && avg > 0) {
+				double c = (live.sell() / avg - 1) * 100;
+				p.text(String.format(Locale.ROOT, "%+.1f%% vs 24h", c), x + 5, ly + 9, c >= 0 ? GOOD : NEG);
+			}
+			ly += 19;
+		}
+		p.text(fit("/skyprice bz add|remove <id>", w - 10), x + 5, ly + 2, MUTED);
+		rowUuids.clear();
+		panelY = y;
+		lastHeight = h;
+	}
+
 	/** Coins a position ties up: a listing's net price, or the coins in your bid. */
-	private static double tied(JsonObject o) {
+	static double tied(JsonObject o) {
 		return "sale".equals(str(o, "role")) ? d(o, "net") : d(o, "amount");
 	}
 
 	/** Filled pie from horizontal spans (one fill per run of same-colour pixels). */
-	private static void pie(Highlight.Painter p, int cx, int cy, int r, double[] v, double total) {
+	static void pie(Highlight.Painter p, int cx, int cy, int r, double[] v, double total) {
 		double[] ends = new double[v.length];
 		double acc = 0;
 		for (int i = 0; i < v.length; i++) {
@@ -528,7 +574,7 @@ final class FcfPanel {
 	}
 
 	/** 1-px line: vertical fills between consecutive points, column by column. */
-	private static void line(Highlight.Painter p, List<long[]> pts, long t0, long t1, long lo, long hi,
+	static void line(Highlight.Painter p, List<long[]> pts, long t0, long t1, long lo, long hi,
 			int gx, int gy, int gw, int gh, int color) {
 		if (pts.isEmpty()) return;
 		int prevX = -1, prevY = 0;
@@ -550,6 +596,10 @@ final class FcfPanel {
 		}
 		p.fill(prevX - 1, prevY - 1, prevX + 2, prevY + 3, color);         // marker on the latest point
 	}
+
+	static JsonObject report() { return report; }
+	static String source() { return source; }
+	static long fetchedAt() { return fetchedAt; }
 
 	/** Chat version (/skyprice fcf). */
 	static List<net.minecraft.network.chat.Component> chat(JsonObject rep, String src) {

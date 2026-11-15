@@ -35,10 +35,13 @@ final class BidHelper {
 				OutbidHud.paint(s, painter);
 				try {
 					FcfPanel.paint(s, painter);
+					if (s instanceof net.minecraft.client.gui.screens.inventory.InventoryScreen) Erp.paint(s, painter);
 				} catch (RuntimeException e) {                 // never let a drawing bug break the inventory
-					System.err.println("[SkyPrice] FCF panel: " + e);
+					System.err.println("[SkyPrice] FCF/ERP panel: " + e);
 				}
 			});
+			ScreenMouseEvents.allowMouseClick(screen).register((s, event) ->
+					!(s instanceof net.minecraft.client.gui.screens.inventory.InventoryScreen && Erp.click(event.x(), event.y())));
 			ScreenMouseEvents.afterMouseClick(screen).register((s, event, consumed) -> {
 				if (OutbidHud.click(s, event.x(), event.y())) return true;
 				if (FcfPanel.click(s, event.x(), event.y())) return true;

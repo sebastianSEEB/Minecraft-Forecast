@@ -132,6 +132,21 @@ final class DataClient {
 		});
 	}
 
+	private volatile JsonObject bazaarWatch;
+	private volatile long bazaarWatchAt;
+
+	/** {"items": {ID: [[ts, buy, sell], …]}} recorded every 15 min by the GitHub AH job (7 days). Null until loaded. */
+	JsonObject bazaarHistory() {
+		long now = System.currentTimeMillis();
+		if (now - bazaarWatchAt > 300_000L && cfg.dataUrl != null && !cfg.dataUrl.isBlank()) {
+			bazaarWatchAt = now;
+			getJson(cfg.dataUrl + "/bazaar_watch.json", 10).whenComplete((j, e) -> {
+				if (j != null) bazaarWatch = j;
+			});
+		}
+		return bazaarWatch;
+	}
+
 	boolean isLoading(String key) {
 		return inFlight.contains(key);
 	}
