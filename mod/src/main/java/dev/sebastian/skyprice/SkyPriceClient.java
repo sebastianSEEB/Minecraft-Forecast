@@ -50,6 +50,16 @@ public final class SkyPriceClient implements ClientModInitializer {
 		Highlight.init(config, data);
 		OutbidHud.init(config);
 		FcfPanel.init(config, data);
+		String version = net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer("skyprice")
+				.map(m -> m.getMetadata().getVersion().getFriendlyString()).orElse("?");
+		System.out.println("[SkyPrice] " + version + " loaded");
+		boolean[] greeted = {false};
+		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			if (greeted[0] || client.player == null) return;
+			greeted[0] = true;                         // once per game start: proves the mod is loaded
+			Chat.say(HudFormatter.line("[SkyPrice " + version + "] ", HudFormatter.GOLD,
+					"loaded. Press E: the FCF button is above your inventory. /skyprice fcf works too.", HudFormatter.GRAY));
+		});
 		ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
 			if (!overlay) OutbidHud.onChat(message);
 		});

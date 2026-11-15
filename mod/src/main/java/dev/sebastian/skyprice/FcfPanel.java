@@ -9,7 +9,9 @@ import com.google.gson.JsonObject;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.inventory.ChestMenu;
 
 /**
  * "FCF" button above your inventory. Click it to open a panel left of the inventory with your potential
@@ -21,7 +23,7 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
  * PC collector (/wallet), else the published wallet.json. Click a position to open that auction (you act yourself).
  */
 final class FcfPanel {
-	private static final int W = 168, BTN_W = 34, BTN_H = 12, ROW = 9, STEP = 12, POS_ROW = 19, MAX_POS = 8;
+	private static final int W = 168, BTN_W = 36, BTN_H = 14, ROW = 9, STEP = 12, POS_ROW = 19, MAX_POS = 8;
 	private static final int BG = 0xE0101418, EDGE = 0xFF3987E5, MUTED = 0xFF8A8A8A, TEXT = 0xFFFFFFFF,
 			POS = 0xFF3987E5, NEG = 0xFFE5534B, TOTAL = 0xFFB8B8B0, GOOD = 0xFF55FF55, GOLD = 0xFFFFAA00;
 
@@ -43,16 +45,18 @@ final class FcfPanel {
 		data = client;
 	}
 
+	/** Your inventory, and any chest-style menu (SkyBlock menu, Auction House, …). */
 	private static boolean active(Screen s) {
-		return cfg != null && cfg.fcfButton && s instanceof InventoryScreen;
+		return cfg != null && cfg.fcfButton && (s instanceof InventoryScreen
+				|| s instanceof AbstractContainerScreen<?> acs && acs.getMenu() instanceof ChestMenu);
 	}
 
 	private static int left(Screen s) {
-		return (s.width - 176) / 2;
+		return GuiPos.box(s)[0];
 	}
 
 	private static int top(Screen s) {
-		return (s.height - 166) / 2;
+		return GuiPos.box(s)[1];
 	}
 
 	private static int panelX(Screen s) {
@@ -95,10 +99,13 @@ final class FcfPanel {
 	// ------------------------------------------------------------------ drawing
 	static void paint(Screen s, Highlight.Painter p) {
 		if (!active(s)) return;
-		int bx = left(s), by = top(s) - BTN_H - 2;
-		p.fill(bx, by, bx + BTN_W, by + BTN_H, open ? 0xFF3987E5 : 0xC0202830);
-		p.fill(bx, by + BTN_H - 1, bx + BTN_W, by + BTN_H, EDGE);
-		p.text("FCF ▸", bx + 4, by + 2, open ? TEXT : GOLD);
+		int bx = left(s), by = Math.max(1, top(s) - BTN_H - 2);
+		p.fill(bx, by, bx + BTN_W, by + BTN_H, open ? 0xFF3987E5 : 0xF0202830);
+		p.fill(bx, by, bx + BTN_W, by + 1, 0xFFFFAA00);
+		p.fill(bx, by + BTN_H - 1, bx + BTN_W, by + BTN_H, 0xFFFFAA00);
+		p.fill(bx, by, bx + 1, by + BTN_H, 0xFFFFAA00);
+		p.fill(bx + BTN_W - 1, by, bx + BTN_W, by + BTN_H, 0xFFFFAA00);
+		p.text("FCF ▸", bx + 5, by + 3, open ? TEXT : GOLD);
 		if (!open) return;
 		refresh(false);
 
@@ -281,7 +288,7 @@ final class FcfPanel {
 	/** Returns true if the click hit the button or the panel. */
 	static boolean click(Screen s, double mx, double my) {
 		if (!active(s)) return false;
-		int bx = left(s), by = top(s) - BTN_H - 2;
+		int bx = left(s), by = Math.max(1, top(s) - BTN_H - 2);
 		if (mx >= bx && mx <= bx + BTN_W && my >= by && my <= by + BTN_H) {
 			open = !open;
 			if (open) refresh(true);
