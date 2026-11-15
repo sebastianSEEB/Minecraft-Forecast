@@ -306,39 +306,72 @@ final class FlipPanel {
 			row(p, x, y, w, name, "+" + HudFormatter.fmt(f.profitPerHour()) + "/h", GOOD, detail, () -> copyBazaar(f, name));
 			y += R2;
 		}
-		p.text(FcfPanel.fit("click: open + amount, again: price", w - 8), x + 4, y, DIM);
+		p.text(FcfPanel.fit("click ×3: open/name · amount · price", w - 8), x + 4, y, DIM);
 		return y + 10;
 	}
 
-	private static String lastCopied;
-	private static long lastCopiedAt;
+	private static String pendingId, pendingName;
+	private static int stage;
+	private static long stageAt, bzSentAt;
+
+	/** The product you're flipping right now (clicked in the panel in the last 3 min), or null. Used by the Bazaar guide. */
+	static String pendingId() {
+		return pendingId != null && System.currentTimeMillis() - stageAt < 180_000 ? pendingId : null;
+	}
+
+	static String pendingName() {
+		return pendingId() != null ? pendingName : null;
+	}
+
+	/** Hypixel answered our /bz with something about the cookie: you have no Booster Cookie, use Search instead. */
+	static void onChat(String plain) {
+		if (System.currentTimeMillis() - bzSentAt > 4000) return;
+		if (plain.toLowerCase(Locale.ROOT).contains("cookie")) {
+			bzSentAt = 0;
+			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, "No Booster Cookie, so /bz can't open it for you. ", HudFormatter.WHITE,
+					"At the Bazaar: click Search (green box), paste (Ctrl+V), Done, then the item (green box).", HudFormatter.GRAY));
+		}
+	}
 
 	/**
-	 * 1st click: open the product in the Bazaar (/bz search, the same as typing it yourself) and copy the amount
-	 * (Hypixel asks for the amount first). 2nd click within 20 s: copy the price. Amount and price are re-computed
-	 * from the live bazaar at click time, so they're never 5 minutes old.
+	 * Click 1: open the product (/bz <name>: with a Booster Cookie it opens the search directly) and copy its name, so
+	 *          without a cookie you click Search at the Bazaar and paste. The Bazaar guide outlines Search → the item →
+	 *          Create Buy Order.
+	 * Click 2: copy the amount (Custom amount).   Click 3: copy the price (Custom price).
+	 * Amount and price are re-computed from the live bazaar at click time.
 	 */
 	private static void copyBazaar(Market.BzFlip snap, String name) {
 		long now = System.currentTimeMillis();
 		DataClient.Live live = data.live(snap.id());
 		Market.BzFlip f = live != null ? Bazaar.flip(cfg, snap.id(), live, budget()) : snap;
 		if (f == null || f.qty() < 1) f = snap;
-		boolean second = f.id().equals(lastCopied) && now - lastCopiedAt < 20_000;
-		lastCopied = second ? null : f.id();
-		lastCopiedAt = now;
-		if (!second) {
-			Chat.command("bz " + name);                                   // you clicked it: same as typing /bz <name>
-			Minecraft.getInstance().keyboardHandler.setClipboard(Long.toString(f.qty()));
-			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, name + ": opening it, copied amount "
-					+ String.format(Locale.ROOT, "%,d", f.qty()) + ". ", HudFormatter.WHITE,
-					"Create Buy Order → Custom amount → paste. Click the row again for the price.", HudFormatter.GRAY));
-			return;
+		boolean same = f.id().equals(pendingId) && now - stageAt < 180_000;
+		stage = same ? stage % 3 + 1 : 1;
+		pendingId = f.id();
+		pendingName = name;
+		stageAt = now;
+		var kb = Minecraft.getInstance().keyboardHandler;
+		switch (stage) {
+			case 1 -> {
+				kb.setClipboard(name);
+				bzSentAt = now;
+				Chat.command("bz " + name);                                // you clicked it: same as typing /bz <name>
+				Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, "1/3 " + name + ": opening it, name copied. ", HudFormatter.WHITE,
+						"No cookie? Bazaar → Search (green box) → Ctrl+V → Done. Then click this row again for the amount.", HudFormatter.GRAY));
+			}
+			case 2 -> {
+				kb.setClipboard(Long.toString(f.qty()));
+				Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, "2/3 copied amount " + String.format(Locale.ROOT, "%,d", f.qty()) + ". ",
+						HudFormatter.WHITE, "Create Buy Order → Custom amount → Ctrl+V. Click the row again for the price.", HudFormatter.GRAY));
+			}
+			default -> {
+				String price = String.format(Locale.ROOT, "%.1f", f.order());
+				kb.setClipboard(price);
+				Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, "3/3 copied price " + price + ". ", HudFormatter.WHITE,
+						"Custom price → Ctrl+V → confirm. When it fills: sell offer at " + HudFormatter.fmt(f.offer()) + " → +"
+								+ HudFormatter.fmt(f.totalProfit()) + " total, ~" + Market.dur(f.roundHours()) + ".", HudFormatter.GRAY));
+			}
 		}
-		String price = String.format(Locale.ROOT, "%.1f", f.order());
-		Minecraft.getInstance().keyboardHandler.setClipboard(price);
-		Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, name + ": copied price " + price + ". ", HudFormatter.WHITE,
-				"Custom price → paste. When it fills, sell offer at " + HudFormatter.fmt(f.offer()) + " → +" + HudFormatter.fmt(f.totalProfit())
-						+ " total (+" + HudFormatter.fmt(f.perUnit()) + " each after tax), ~" + Market.dur(f.roundHours()) + ".", HudFormatter.GRAY));
 	}
 
 	private static int craft(Highlight.Painter p, int x, int y, int w, int bottom) {

@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.ChestMenu;
@@ -108,26 +109,62 @@ final class Highlight {
 		if (!title.contains("Bazaar") && !title.contains("➜")) return;
 		if (!(acs.getMenu() instanceof ChestMenu chest)) return;
 		int[] box = GuiPos.box(screen);
+		String pending = FlipPanel.pendingId();
+		String pendingName = FlipPanel.pendingName();
+		boolean productVisible = false;
 		List<Slot> slots = chest.slots;
-		for (int i = 0; i < Math.min(chest.getRowCount() * 9, slots.size()); i++) {
+		int n = Math.min(chest.getRowCount() * 9, slots.size());
+		int searchSlot = -1, buyOrderSlot = -1;
+		for (int i = 0; i < n; i++) {
+			ItemStack stack = slots.get(i).getItem();
+			if (stack.isEmpty()) continue;
+			String low = stack.getHoverName().getString().replaceAll("§.", "").trim().toLowerCase(Locale.ROOT);
+			if (low.equals("search") || low.startsWith("search ")) searchSlot = i;
+			if (low.contains("create buy order")) buyOrderSlot = i;
+		}
+		// a product page has a "Create Buy Order" button and the product's name in the title
+		boolean onProductPage = pendingName != null && buyOrderSlot >= 0
+				&& title.toLowerCase(Locale.ROOT).contains(pendingName.toLowerCase(Locale.ROOT));
+		for (int i = 0; i < n; i++) {
 			Slot slot = slots.get(i);
 			ItemStack stack = slot.getItem();
 			if (stack.isEmpty()) continue;
+			String name = stack.getHoverName().getString().replaceAll("§.", "").trim();
 			String id = ItemKeys.keyFor(stack);
-			if (id == null) id = Bazaar.idForName(stack.getHoverName().getString(), data);
+			if (id == null) id = Bazaar.idForName(name, data);
+			int x = box[0] + slot.x, y = box[1] + slot.y;
+			if (pending != null && pending.equals(id) && !onProductPage) {        // the product you clicked: open it
+				productVisible = true;
+				box(p, x, y, 0xFF55FFFF, 2);
+				continue;
+			}
 			int r = Bazaar.rank(id);
 			if (r == 0 || r > 20) continue;
-			int x = box[0] + slot.x, y = box[1] + slot.y;
-			int border = r <= 5 ? 0xFF55FF55 : 0xFF2E9E5B;
-			p.fill(x - 1, y - 1, x + 17, y, border);
-			p.fill(x - 1, y + 16, x + 17, y + 17, border);
-			p.fill(x - 1, y, x, y + 16, border);
-			p.fill(x + 16, y, x + 17, y + 16, border);
-			String t = String.valueOf(r);
+			box(p, x, y, r <= 5 ? 0xFF55FF55 : 0xFF2E9E5B, 1);
 			int tw = r >= 10 ? 13 : 7;
 			p.fill(x, y, x + tw, y + 9, 0xE0000000);
-			p.text(t, x + 1, y, 0xFF55FF55);
+			p.text(String.valueOf(r), x + 1, y, 0xFF55FF55);
 		}
+		// guide for the product you're flipping: Search → the item → Create Buy Order (drawing only; you click)
+		if (pending == null) return;
+		Integer step = null;
+		if (onProductPage) step = buyOrderSlot;
+		else if (!productVisible && searchSlot >= 0) step = searchSlot;
+		if (step == null) return;
+		Slot s = slots.get(step);
+		int x = box[0] + s.x, y = box[1] + s.y;
+		box(p, x, y, 0xFF55FF55, 2);
+		String hint = onProductPage ? "here, then Custom amount" : "Search → Ctrl+V";
+		int tx = Math.min(x + 20, screen.width - Minecraft.getInstance().font.width(hint) - 4);
+		p.fill(tx - 2, y + 3, tx + Minecraft.getInstance().font.width(hint) + 2, y + 13, 0xE0000000);
+		p.text(hint, tx, y + 4, 0xFF55FF55);
+	}
+
+	private static void box(Painter p, int x, int y, int color, int t) {
+		p.fill(x - t, y - t, x + 16 + t, y, color);
+		p.fill(x - t, y + 16, x + 16 + t, y + 16 + t, color);
+		p.fill(x - t, y, x, y + 16, color);
+		p.fill(x + 16, y, x + 16 + t, y + 16, color);
 	}
 
 	/** Profitable auctions on the AH page currently open (best first), empty when no AH page is open. */

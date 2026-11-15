@@ -28,6 +28,7 @@ final class Alerts {
 		try {
 			ProfitLog.onChat(plain);
 			BzOrders.onChat(plain);
+			FlipPanel.onChat(plain);
 		} catch (RuntimeException e) {
 			System.err.println("[SkyPrice] chat: " + e);
 		}
