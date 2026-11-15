@@ -97,7 +97,7 @@ def main(name, out_dir, site="https://sebastianseeb.github.io/Minecraft-Forecast
     Path(out_dir, "positions.json").write_text(json.dumps(out))
 
     # bazaar price history for the products you follow (stocks, candy, …): [ts, buy, sell] every run, 7 days
-    watch = [w.strip().upper() for w in os.environ.get("BAZAAR_WATCH", ",".join(BAZAAR_WATCH)).split(",") if w.strip()]
+    watch = [w.strip().upper() for w in (os.environ.get("BAZAAR_WATCH") or ",".join(BAZAAR_WATCH)).split(",") if w.strip()]
     prev_bz = get_json(f"{site}/data/bazaar_watch.json?t={ts}") or {}
     try:
         products = api.bazaar().get("products") or {}
