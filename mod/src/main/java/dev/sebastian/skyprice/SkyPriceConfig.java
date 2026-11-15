@@ -38,6 +38,7 @@ final class SkyPriceConfig {
 
 	boolean outbidHud = true;         // panel right of your inventory with auctions you've been outbid on (click = open)
 	int outbidHours = 12;
+	boolean coflFallback = true;      // use SkyCofl (sky.coflnet.com) prices when our data has too little history
 	boolean fcfButton = true;
 	boolean erpButton = true;         // "ERP" button above your inventory: RealGame-style console for your AH trading
 	/** Bazaar products shown in the ERP "Bazaar" window and the FCF panel's Bazaar tab (/skyprice bz add|remove <id>). */

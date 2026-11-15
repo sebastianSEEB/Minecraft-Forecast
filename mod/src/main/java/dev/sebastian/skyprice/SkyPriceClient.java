@@ -1,5 +1,6 @@
 package dev.sebastian.skyprice;
 
+import com.google.gson.JsonObject;
 import java.util.List;
 import java.util.Locale;
 
@@ -25,12 +26,14 @@ import net.minecraft.network.chat.Component;
 public final class SkyPriceClient implements ClientModInitializer {
 	private static SkyPriceConfig config;
 	private static DataClient data;
+	static CoflClient cofl;
 	private static final List<Component> LOADING = List.of(HudFormatter.line("Market: loading…", HudFormatter.GRAY));
 
 	@Override
 	public void onInitializeClient() {
 		config = SkyPriceConfig.load();
 		data = new DataClient(config);
+		cofl = new CoflClient(config);
 		Valuation.init(data);
 
 		ItemTooltipCallback.EVENT.register((stack, tooltipContext, tooltipFlag, lines) -> {
@@ -196,15 +199,33 @@ public final class SkyPriceClient implements ClientModInitializer {
 								}))));
 	}
 
-	private static Verdict.Result resultFor(String key, Verdict.Listing listing, Valuation.Attrs attrs) {
+	/**
+	 * Our doc, or a SkyCofl doc when ours is missing / has too little auction history.
+	 * @param fetch false = never start a SkyCofl request (used for the many items the border check scans)
+	 */
+	static JsonObject docFor(String key, boolean fetch) {
 		DataClient.Doc d = data.doc(key);
-		if (d == null) return new Verdict.Result(LOADING, null);
-		if (d.json() == null) return null;            // item never traded / not published
+		JsonObject own = d == null ? null : d.json();
+		if (own != null && !CoflClient.thin(own)) return own;
+		if (d == null && !fetch) return null;
+		if (own == null && d != null && data.live(key) != null) return null;   // a bazaar product we don't have
+		JsonObject c = cofl.doc(key, fetch);
+		if (c == null) return own;
+		JsonObject model = HudFormatter.obj(own, "market", "model");
+		if (model != null) HudFormatter.obj(c, "market").add("model", model);   // keep our per-copy valuation model
+		return c;
+	}
+
+	private static Verdict.Result resultFor(String key, Verdict.Listing listing, Valuation.Attrs attrs) {
+		DataClient.Doc dd = data.doc(key);
+		if (dd == null) return new Verdict.Result(LOADING, null);
+		JsonObject j = docFor(key, true);
+		if (j == null) return cofl.loading(key) ? new Verdict.Result(LOADING, null) : null;
 		try {
-			boolean bz = "bz".equals(d.json().get("kind").getAsString());
+			boolean bz = "bz".equals(j.get("kind").getAsString());
 			DataClient.Live live = bz ? data.live(key) : null;
-			Valuation.Estimate est = bz ? null : Valuation.estimate(d.json(), key, attrs);
-			return HudFormatter.render(d.json(), live, config, listing, est);
+			Valuation.Estimate est = bz ? null : Valuation.estimate(j, key, attrs);
+			return HudFormatter.render(j, live, config, listing, est);
 		} catch (RuntimeException e) {
 			return null;
 		}

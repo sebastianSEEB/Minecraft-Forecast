@@ -237,6 +237,15 @@ with `/skyprice bz add <id>`, `/skyprice bz remove <id>`, `/skyprice bz reset`. 
 bazaar list every 15 min (`data/bazaar_watch.json`, 7 days) so the chart works without your PC; set a repository
 variable `BAZAAR_WATCH` (comma-separated ids) to change what it records.
 
+### SkyCofl fallback (mod 1.13.0+)
+When our own data has too little auction history for an item (no PC collector running, or the item wasn't traded
+while the website snapshot ran), the tooltip uses **SkyCofl** (sky.coflnet.com, free public SkyBlock price history):
+`/api/item/price/{tag}/history/week` for the 24 h / 7 d average, high, low and number sold, and
+`/api/item/price/{tag}/bin` for the lowest and 2nd-lowest BIN. Pets are looked up as `PET_TYPE?Rarity=TIER`. Requests
+are spaced 400 ms apart (SkyCofl allows 30 per 10 s) and cached 10 min (BIN 3 min); the yellow border only uses what's
+already cached. The tooltip says "Prices provided by SkyCofl" when it uses them. Turn off with `"coflFallback": false`.
+SkyCofl asks for a Premium+ subscription for commercial use; this is a personal, non-commercial mod.
+
 ## Dashboard
 Static site (`dashboard/` + JSON exported by `market/publish.py`) on the `gh-pages` branch. It shows:
 * tracked items, AH sales and coins traded in the last 24h, and how much history has been collected

@@ -1,5 +1,6 @@
 package dev.sebastian.skyprice;
 
+import com.google.gson.JsonObject;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -80,12 +81,12 @@ final class Highlight {
 			List<Component> lines = lore.lines();
 			Verdict.Listing listing = Verdict.listing(lines, stack.getCount());
 			if (listing == null) return 0;                         // not an auction listing
-			DataClient.Doc d = data.doc(key);
-			if (d == null || d.json() == null) return 0;
-			Valuation.Estimate est = cfg.valueUpgrades ? Valuation.estimate(d.json(), key, Valuation.parse(stack)) : null;
-			Verdict.Result r = Verdict.evaluate(d.json(), listing, null, cfg, est);
+			JsonObject dj = SkyPriceClient.docFor(key, false);            // SkyCofl only if already cached (no burst of requests)
+			if (dj == null) return 0;
+			Valuation.Estimate est = cfg.valueUpgrades ? Valuation.estimate(dj, key, Valuation.parse(stack)) : null;
+			Verdict.Result r = Verdict.evaluate(dj, listing, null, cfg, est);
 			if (r.banner() == null) return 0;                      // not profitable / not liquid / risky
-			Double fair = est != null ? Double.valueOf(est.value()) : HudFormatter.num(HudFormatter.obj(d.json(), "market"), "fair");
+			Double fair = est != null ? Double.valueOf(est.value()) : HudFormatter.num(HudFormatter.obj(dj, "market"), "fair");
 			return fair != null && listing.price() <= fair * (1 - cfg.dealMinDiscountPercent / 100.0) ? 2 : 1;
 		} catch (RuntimeException e) {
 			return 0;

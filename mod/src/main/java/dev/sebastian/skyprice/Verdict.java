@@ -167,13 +167,17 @@ final class Verdict {
 			Double sales = HudFormatter.num(s, "sales");
 			boolean liquid = sales != null && sales >= 3;
 			if (market != null) {
-				out.add(HudFormatter.line("    fair = sold " + HudFormatter.fmt(HudFormatter.num(market, "sold_median_72h"))
-						+ " · cheapest 25% listed " + HudFormatter.fmt(HudFormatter.num(HudFormatter.obj(market, "listed"), "p25"))
-						+ " · 7d avg " + HudFormatter.fmt(HudFormatter.num(market, "avg_7d")), HudFormatter.DARK));
+				boolean cofl = "SkyCofl".equals(HudFormatter.str(d, "source"));
+				out.add(HudFormatter.line(cofl
+						? "    fair = median of 24h avg sold " + HudFormatter.fmt(HudFormatter.num(market, "sold_median_72h"))
+								+ " · 7d avg " + HudFormatter.fmt(HudFormatter.num(market, "avg_7d")) + " · lowest BIN"
+						: "    fair = sold " + HudFormatter.fmt(HudFormatter.num(market, "sold_median_72h"))
+								+ " · cheapest 25% listed " + HudFormatter.fmt(HudFormatter.num(HudFormatter.obj(market, "listed"), "p25"))
+								+ " · 7d avg " + HudFormatter.fmt(HudFormatter.num(market, "avg_7d")), HudFormatter.DARK));
 				JsonObject li = HudFormatter.obj(market, "listed");
 				if (li != null) {
 					Double cnt = HudFormatter.num(li, "count");
-					out.add(HudFormatter.line("    listed: ", HudFormatter.GRAY, (cnt == null ? 0 : cnt.intValue()) + "", HudFormatter.WHITE,
+					out.add(HudFormatter.line("    listed: ", HudFormatter.GRAY, cnt == null ? "" : cnt.intValue() + "", HudFormatter.WHITE,
 							"  lowest ", HudFormatter.GRAY, HudFormatter.fmt(HudFormatter.num(li, "lowest")), HudFormatter.YELLOW,
 							"  2nd ", HudFormatter.GRAY, HudFormatter.fmt(HudFormatter.num(li, "second")), HudFormatter.WHITE,
 							"  median ", HudFormatter.GRAY, HudFormatter.fmt(HudFormatter.num(li, "median")), HudFormatter.WHITE));

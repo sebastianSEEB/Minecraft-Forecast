@@ -53,6 +53,10 @@ final class HudFormatter {
 		return e == null || e.isJsonNull() ? null : e.getAsDouble();
 	}
 
+	static String str(JsonObject o, String k) {
+		return o != null && o.has(k) && !o.get(k).isJsonNull() && o.get(k).isJsonPrimitive() ? o.get(k).getAsString() : null;
+	}
+
 	static JsonObject obj(JsonObject o, String... path) {
 		JsonObject cur = o;
 		for (String p : path) {
@@ -126,6 +130,7 @@ final class HudFormatter {
 		} else {
 			Double lbin = num(s, "lbin");
 			Double listed = num(s, "listed");
+			boolean cofl = "SkyCofl".equals(str(d, "source"));
 			out.add(line("Auction House ", GOLD, "lowest BIN ", GRAY, fmt(lbin), YELLOW,
 					listed != null ? "  (" + listed.intValue() + " listed)" : "", DARK));
 			JsonObject a24 = obj(stats, "24h", "sold");
@@ -144,6 +149,7 @@ final class HudFormatter {
 			}
 			if (cfg.showHistory) history(out, stats, obj(stats, "all", "sold") != null ? "sold" : "lbin");
 			if (cfg.showForecast) forecast(out, obj(d, "forecast", "main"), lbin != null ? lbin : num(s, "avg"));
+			if (cofl) out.add(line(" Prices provided by SkyCofl (sky.coflnet.com)", DARK));
 		}
 		if (cfg.showSeasons) seasons(out, d);
 		return verdict == null ? new Verdict.Result(out, banner)
