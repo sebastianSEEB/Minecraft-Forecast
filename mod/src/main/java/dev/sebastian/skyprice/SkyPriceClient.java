@@ -49,6 +49,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 
 		Highlight.init(config, data);
 		OutbidHud.init(config);
+		FcfPanel.init(config, data);
 		ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
 			if (!overlay) OutbidHud.onChat(message);
 		});
@@ -104,6 +105,13 @@ public final class SkyPriceClient implements ClientModInitializer {
 											Chat.command("viewauction " + list.get(n - 1).uuid());
 											return 1;
 										})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("fcf").executes(ctx -> {
+							var src = ctx.getSource();
+							data.walletReport().whenComplete((d, err) -> Minecraft.getInstance().execute(() -> {
+								for (Component c : FcfPanel.chat(d == null ? null : d.json(), d == null ? "no data" : d.source())) src.sendFeedback(c);
+							}));
+							return 1;
+						}))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("unwatchall").executes(ctx -> {
 							Watch.clear();
 							ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Watch list cleared."));

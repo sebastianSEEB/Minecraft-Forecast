@@ -206,6 +206,10 @@ winning bids are shown but not subtracted from the wallet a second time. Set it 
 not sell at its price. Your listings and bids are found in every full AH scan (every 5 min) using `player_name`;
 the Wallet tab shows the waterfall, the FCF line over time and every open position. Turn off with `track_positions: false`.
 
+In game (mod 1.10.0+): open your inventory and click **FCF ▸** above it. A panel opens to the left with the same
+waterfall (your live purse from the sidebar + bank), the conservative FCF marker and your open positions; click a
+position to open that auction, click ⟳ to refresh. `/skyprice fcf` prints it in chat. Turn off with `"fcfButton": false`.
+
 ## Dashboard
 Static site (`dashboard/` + JSON exported by `market/publish.py`) on the `gh-pages` branch. It shows:
 * tracked items, AH sales and coins traded in the last 24h, and how much history has been collected

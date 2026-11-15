@@ -33,9 +33,11 @@ final class BidHelper {
 			RenderHook.register(screen, (s, painter) -> {
 				Highlight.paint(s, painter);
 				OutbidHud.paint(s, painter);
+				FcfPanel.paint(s, painter);
 			});
 			ScreenMouseEvents.afterMouseClick(screen).register((s, event, consumed) -> {
 				if (OutbidHud.click(s, event.x(), event.y())) return true;
+				if (FcfPanel.click(s, event.x(), event.y())) return true;
 				if (cfg.copyBidOnClick) onClick(s);
 				return consumed;
 			});

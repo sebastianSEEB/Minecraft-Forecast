@@ -115,6 +115,19 @@ final class DataClient {
 		return components;
 	}
 
+	/** Wallet + potential FCF report: local collector /wallet, else the published {dataUrl}/wallet.json. */
+	CompletableFuture<Doc> walletReport() {
+		CompletableFuture<JsonObject> local = (cfg.localServer == null || cfg.localServer.isBlank())
+				? CompletableFuture.completedFuture(null)
+				: getJson(cfg.localServer + "/wallet", 3).handle((j, e) -> e != null || j == null || j.entrySet().isEmpty() ? null : j);
+		return local.thenCompose(j -> {
+			if (j != null) return CompletableFuture.completedFuture(new Doc(System.currentTimeMillis(), j, "your PC"));
+			if (cfg.dataUrl == null || cfg.dataUrl.isBlank()) return CompletableFuture.completedFuture(null);
+			return getJson(cfg.dataUrl + "/wallet.json", 10).handle((r, e) ->
+					e != null || r == null ? null : new Doc(System.currentTimeMillis(), r, "website"));
+		});
+	}
+
 	boolean isLoading(String key) {
 		return inFlight.contains(key);
 	}

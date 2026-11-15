@@ -38,6 +38,7 @@ final class SkyPriceConfig {
 
 	boolean outbidHud = true;         // panel right of your inventory with auctions you've been outbid on (click = open)
 	int outbidHours = 12;
+	boolean fcfButton = true;         // "FCF" button above your inventory: potential free cash flow panel
 	boolean highlightDeals = true;    // yellow border on AH auctions worth buying/bidding (glow when >= 20 % under fair)
 	boolean reportPurse = true;       // send your purse (from the sidebar) to the PC collector for the Wallet tab
 	int purseReportSeconds = 300;
