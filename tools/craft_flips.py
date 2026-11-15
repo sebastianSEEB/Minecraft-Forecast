@@ -25,6 +25,7 @@ from market.marketcheck import net_after_fees  # noqa: E402
 
 BZ_TAX = 0.0125
 MIN_MARGIN = 0.08
+MAX_MARGIN = 1.5
 
 
 def parse_ing(s):
@@ -113,15 +114,18 @@ def scan_ah(api):
     return lbin, {k: v for k, v in second.items() if v < 1e18}, listed
 
 
-def cofl_week_volume(tag):
+def cofl_week(tag):
+    """(sold in 7 days, volume-weighted average price) from SkyCofl."""
     try:
         req = urllib.request.Request(f"https://sky.coflnet.com/api/item/price/{tag}/history/week",
                                      headers={"User-Agent": "skyprice craft-flips"})
         with urllib.request.urlopen(req, timeout=15) as r:
             pts = json.loads(r.read().decode())
-        return sum(float(p.get("volume") or 0) for p in pts or [])
+        vol = sum(float(p.get("volume") or 0) for p in pts or [])
+        pv = sum(float(p.get("volume") or 0) * float(p.get("avg") or 0) for p in pts or [])
+        return vol, (pv / vol if vol else None)
     except Exception:
-        return None
+        return None, None
 
 
 def main(repo, out_dir, budget="35000000"):
@@ -146,9 +150,14 @@ def main(repo, out_dir, budget="35000000"):
             return memo[(i, depth)]
         best = (None, None)
         opts = []
-        if i in bz and bz[i]["order"] > 0:
-            opts.append((bz[i]["order"] + 0.1, "bazaar order"))
-        if i in npc:
+        if i in bz and bz[i]["offer"] > 0:
+            b = bz[i]
+            # a buy order only fills when the spread is tight; otherwise you pay the instant-buy price
+            if b["order"] >= 0.9 * b["offer"] and b["sell_week"] >= 7 * 24 * 10:
+                opts.append((b["order"] + 0.1, "bazaar order"))
+            else:
+                opts.append((b["offer"], "bazaar instant buy"))
+        elif i in npc:
             opts.append((npc[i], "NPC"))
         if i in lbin:
             opts.append((lbin[i], "lowest BIN"))
@@ -181,9 +190,11 @@ def main(repo, out_dir, budget="35000000"):
                 continue
             per = c / cnt
             if out in bz:
-                sell = bz[out]["offer"] - 0.1
+                b = bz[out]
+                # sell offer just under the cheapest one, but not above 1.3× the best buy order (wide = thin market)
+                sell = min(b["offer"] - 0.1, b["order"] * 1.3) if b["order"] > 0 else b["offer"] - 0.1
                 net = sell * (1 - BZ_TAX)
-                per_day = bz[out]["buy_week"] / 7
+                per_day = b["buy_week"] / 7
                 where = "bazaar"
             elif out in lbin:
                 sell = lbin[out] * 0.99 if out not in second else min(lbin[out], second[out]) * 0.99
@@ -194,8 +205,8 @@ def main(repo, out_dir, budget="35000000"):
                 continue
             profit = net - per
             margin = profit / per
-            if margin < MIN_MARGIN:
-                continue
+            if margin < MIN_MARGIN or margin > MAX_MARGIN:
+                continue                          # > 150 % is almost always bad data or a thin/manipulated market
             parts = []
             for k, n in sorted(ings.items(), key=lambda kv: -kv[1] * (cost(kv[0], 1)[0] or 0)):
                 uc, how = cost(k, 1)
@@ -204,11 +215,16 @@ def main(repo, out_dir, budget="35000000"):
                          "profit": round(profit), "margin": round(margin, 3), "sales_per_day": per_day,
                          "listed": listed.get(out), "requires": req.get(out), "ingredients": parts, "makes": cnt})
     # AH outputs: how many actually sell (SkyCofl), for the most promising ones only
-    ah = sorted([r for r in rows if r["where"] == "AH"], key=lambda r: -r["profit"])[:60]
+    ah = sorted([r for r in rows if r["where"] == "AH"], key=lambda r: -r["profit"])[:80]
     for r in ah:
-        v = cofl_week_volume(r["item"])
+        v, avg = cofl_week(r["item"])
         r["sales_per_day"] = None if v is None else v / 7
+        if avg:                                   # never assume it sells above what it actually sold for
+            r["sell"] = round(min(r["sell"], avg))
+            r["profit"] = round(net_after_fees(r["sell"]) - r["cost"])
+            r["margin"] = round(r["profit"] / r["cost"], 3)
         time.sleep(0.5)
+    rows = [r for r in rows if MIN_MARGIN <= r["margin"] <= MAX_MARGIN]
     good = []
     for r in rows:
         spd = r["sales_per_day"]
