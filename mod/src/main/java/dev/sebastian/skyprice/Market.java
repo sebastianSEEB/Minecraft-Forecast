@@ -92,27 +92,84 @@ final class Market {
 	}
 
 	// ------------------------------------------------------------------ bazaar
-	record BzFlip(String id, double order, double offer, double perUnit, double pct, double weekly, double unitsPerHour,
-			double coinsPerHour, int competition) {}
+	/** Hypixel caps one bazaar order at 71,680 items. */
+	static final int MAX_ORDER = 71_680;
 
 	/**
-	 * Bazaar flip for one product: place a buy order 0.1 above the top order, then a sell offer 0.1 under the cheapest offer.
-	 * @param instaBuy  quick_status buyPrice (cheapest sell offer)
-	 * @param instaSell quick_status sellPrice (highest buy order)
-	 * @param share     part of the market's weekly volume you can expect to catch (0.1 = 10 %)
-	 * @param budget    coins you're willing to tie up in one product
+	 * A volume-sized bazaar flip.
+	 *   qty            how many to order this round (budget, fill speed on both sides, round length, order cap)
+	 *   fillHours      how long your buy order takes to fill (instant-sells hit the top buy order: yours)
+	 *   sellHours      how long your sell offer takes to sell (instant-buys hit the cheapest offer: yours)
+	 *   totalProfit    qty × profit per unit after tax
+	 *   profitPerHour  totalProfit over the whole round (fill + sell)
 	 */
+	record BzFlip(String id, double order, double offer, double perUnit, double pct, double buyFillPerHour, double sellFillPerHour,
+			long qty, double fillHours, double sellHours, double totalProfit, double profitPerHour, int competition,
+			double marketPerHour) {
+		double unitsPerHour() {
+			return marketPerHour;
+		}
+
+		double coinsPerHour() {
+			return profitPerHour;
+		}
+
+		double roundHours() {
+			return fillHours + sellHours;
+		}
+
+		double cost() {
+			return qty * order;
+		}
+	}
+
 	static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders,
 			double taxPct, double share, double budget) {
+		return bazaarFlip(id, instaBuy, instaSell, buyWeek, sellWeek, orders, taxPct, share, budget, 2);
+	}
+
+	/**
+	 * Bazaar flip for one product, sized by volume: buy order 0.1 above the top order, sell offer 0.1 under the
+	 * cheapest offer, both catching `share` of the matching instant trades.
+	 * @param instaBuy   quick_status buyPrice (cheapest sell offer)
+	 * @param instaSell  quick_status sellPrice (highest buy order)
+	 * @param buyWeek    units instantly bought in 7 days (these fill sell offers)
+	 * @param sellWeek   units instantly sold in 7 days (these fill buy orders)
+	 * @param share      part of those trades you can expect to catch (0.1 = 10 %)
+	 * @param budget     coins you'll tie up in this product
+	 * @param roundHours how long one round (fill + sell) may take
+	 */
+	static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders,
+			double taxPct, double share, double budget, double roundHours) {
 		if (instaBuy <= 0 || instaSell <= 0) return null;
 		double order = instaSell + 0.1, offer = instaBuy - 0.1;
 		double perUnit = offer * (1 - taxPct / 100.0) - order;
 		double pct = perUnit / order;
-		double weekly = Math.min(buyWeek, sellWeek);
-		double marketPerHour = weekly / 168.0;
-		double mine = marketPerHour * share;
-		double affordable = budget > 0 ? budget / order : mine;       // what one budget's worth of orders buys per cycle (~1 h)
-		double units = Math.min(mine, affordable);
-		return new BzFlip(id, order, offer, perUnit, pct, weekly, marketPerHour, Math.max(0, perUnit) * units, orders);
+		double buyFill = sellWeek / 168.0 * share;                // your buy order fills from instant sells
+		double sellFill = buyWeek / 168.0 * share;                // your sell offer sells to instant buys
+		double market = Math.min(buyWeek, sellWeek) / 168.0;
+		long qty = 0;
+		double fillH = Double.POSITIVE_INFINITY, sellH = Double.POSITIVE_INFINITY, total = 0, perHour = 0;
+		if (buyFill > 0 && sellFill > 0) {
+			// time per unit for a full round = 1/buyFill + 1/sellFill → units that fit in the round length
+			double fitsRound = roundHours / (1 / buyFill + 1 / sellFill);
+			double affordable = budget > 0 ? Math.floor(budget / order) : fitsRound;
+			qty = (long) Math.max(0, Math.min(Math.min(fitsRound, affordable), MAX_ORDER));
+			if (qty >= 1) {
+				fillH = qty / buyFill;
+				sellH = qty / sellFill;
+				total = qty * perUnit;
+				perHour = total / Math.max(0.25, fillH + sellH);
+			}
+		}
+		return new BzFlip(id, order, offer, perUnit, pct, buyFill, sellFill, qty, fillH, sellH, total, Math.max(0, perHour), orders, market);
+	}
+
+	/** "12m", "1.5h", "3d" */
+	static String dur(double hours) {
+		if (Double.isInfinite(hours) || Double.isNaN(hours)) return "never";
+		if (hours < 1) return Math.max(1, Math.round(hours * 60)) + "m";
+		if (hours < 48) return (hours < 10 ? String.format(Locale.ROOT, "%.1f", hours) : String.valueOf(Math.round(hours))) + "h";
+		return Math.round(hours / 24) + "d";
 	}
 }

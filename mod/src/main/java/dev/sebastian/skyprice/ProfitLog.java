@@ -32,7 +32,7 @@ import net.fabricmc.loader.api.FabricLoader;
 final class ProfitLog {
 	record Trade(long ts, String side, String market, String item, double qty, double coins) {}
 
-	record Flip(long ts, String item, double qty, double cost, double got) {
+	record Flip(long ts, String item, double qty, double cost, double got, String market) {
 		double profit() {
 			return got - cost;
 		}
@@ -188,7 +188,7 @@ final class ProfitLog {
 				continue;
 			}
 			double got = t.coins() * matched / t.qty();
-			flips.add(new Flip(t.ts(), t.item(), matched, cost, got));
+			flips.add(new Flip(t.ts(), t.item(), matched, cost, got, t.market()));
 		}
 		double profit = 0;
 		Flip best = null;
@@ -199,6 +199,18 @@ final class ProfitLog {
 		List<Flip> recent = new ArrayList<>(flips);
 		recent.sort((a, b) -> Long.compare(b.ts(), a.ts()));
 		return new Summary(profit, flips.size(), best, unmatched, recent);
+	}
+
+	/** Realized profit + flip count for one market ("AH" / "BZ") since `from`. */
+	static double[] marketTotal(long from, String market) {
+		double p = 0;
+		int n = 0;
+		for (Flip f : summary(from).recent()) {
+			if (!market.equals(f.market())) continue;
+			p += f.profit();
+			n++;
+		}
+		return new double[]{p, n};
 	}
 
 	/** Once per day on joining: yesterday's result. */

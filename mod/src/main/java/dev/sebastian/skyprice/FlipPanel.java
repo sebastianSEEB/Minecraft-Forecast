@@ -289,7 +289,8 @@ final class FlipPanel {
 			y += 11;
 		}
 		List<Market.BzFlip> list = Bazaar.ranking(cfg, data, budget());
-		section(p, x, y, w, "Best flips", "per hour");
+		double[] today = ProfitLog.marketTotal(ProfitLog.startOfDay(0), "BZ");
+		section(p, x, y, w, "Best flips", today[1] > 0 ? "today " + (today[0] >= 0 ? "+" : "") + HudFormatter.fmt(today[0]) : "per hour");
 		y += 11;
 		if (list.isEmpty()) {
 			p.text(FcfPanel.fit(data.bazaarAll().isEmpty() ? "Loading the bazaar…" : "Nothing fits your budget", w - 8), x + 4, y, MUTED);
@@ -298,23 +299,35 @@ final class FlipPanel {
 		for (int i = 0; i < list.size() && y + R2 <= bottom; i++) {
 			Market.BzFlip f = list.get(i);
 			String name = Bazaar.name(f.id(), data);
-			String detail = String.format(Locale.ROOT, "%s → %s · +%s (%.0f%%)", HudFormatter.fmt(f.order()),
-					HudFormatter.fmt(f.offer()), HudFormatter.fmt(f.perUnit()), f.pct() * 100);
-			row(p, x, y, w, name, "+" + HudFormatter.fmt(f.coinsPerHour()) + "/h", GOOD, detail, () -> copyBazaar(f, name));
+			String detail = String.format(Locale.ROOT, "%s× %s→%s · +%s · %s", HudFormatter.fmt((double) f.qty()),
+					HudFormatter.fmt(f.order()), HudFormatter.fmt(f.offer()), HudFormatter.fmt(f.totalProfit()), Market.dur(f.roundHours()));
+			row(p, x, y, w, name, "+" + HudFormatter.fmt(f.profitPerHour()) + "/h", GOOD, detail, () -> copyBazaar(f, name));
 			y += R2;
 		}
-		p.text(FcfPanel.fit("click = copy order price", w - 8), x + 4, y, DIM);
+		p.text(FcfPanel.fit("click: copy amount, again: price", w - 8), x + 4, y, DIM);
 		return y + 10;
 	}
 
+	private static String lastCopied;
+	private static long lastCopiedAt;
+
+	/** 1st click: copy the amount (Hypixel asks for the amount first). 2nd click within 20 s: copy the price. */
 	private static void copyBazaar(Market.BzFlip f, String name) {
+		long now = System.currentTimeMillis();
+		boolean second = f.id().equals(lastCopied) && now - lastCopiedAt < 20_000;
+		lastCopied = second ? null : f.id();
+		lastCopiedAt = now;
+		if (!second) {
+			Minecraft.getInstance().keyboardHandler.setClipboard(Long.toString(f.qty()));
+			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, name + ": copied amount " + String.format(Locale.ROOT, "%,d", f.qty())
+					+ ". ", HudFormatter.WHITE, "Buy order → Custom amount → paste. Click the row again for the price.", HudFormatter.GRAY));
+			return;
+		}
 		String price = String.format(Locale.ROOT, "%.1f", f.order());
 		Minecraft.getInstance().keyboardHandler.setClipboard(price);
-		double units = Math.max(1, Math.floor(budget() / f.order()));
-		Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, "Copied buy order price " + price + " for " + name + ". ", HudFormatter.WHITE,
-				"Place a buy order (up to " + (long) Math.min(units, Math.max(1, f.unitsPerHour() * cfg.bazaarSharePercent / 100.0 * 4))
-						+ " units), then a sell offer at " + HudFormatter.fmt(f.offer()) + " → +" + HudFormatter.fmt(f.perUnit()) + " each after tax.",
-				HudFormatter.GRAY));
+		Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, name + ": copied price " + price + ". ", HudFormatter.WHITE,
+				"Custom price → paste. When it fills, sell offer at " + HudFormatter.fmt(f.offer()) + " → +" + HudFormatter.fmt(f.totalProfit())
+						+ " total (+" + HudFormatter.fmt(f.perUnit()) + " each after tax), ~" + Market.dur(f.roundHours()) + ".", HudFormatter.GRAY));
 	}
 
 	private static int craft(Highlight.Painter p, int x, int y, int w, int bottom) {

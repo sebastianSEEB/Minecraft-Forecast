@@ -10,8 +10,8 @@ import java.util.Map;
  * Bazaar flip ranking over every product (live quick_status from the public Hypixel API):
  *
  *   buy order at top + 0.1  →  sell offer at cheapest − 0.1  →  profit per unit after the bazaar tax
- *   × the units you can expect to fill per hour (bazaarSharePercent of the traded volume, limited by your budget)
- *   = coins per hour.
+ *   sized by volume: your buy order fills from instant sells, your offer from instant buys (bazaarSharePercent of each),
+ *   as many as fit one round of bazaarRoundHours and your budget → total profit, round time, profit per hour.
  *
  * Skipped: margins under 2 % or over 100 % (thin or manipulated), fewer than 10 units traded per hour, products
  * whose buy order alone costs more than your budget. Also turns a display name ("Enchanted Diamond") back into the
@@ -34,10 +34,9 @@ final class Bazaar {
 		List<Market.BzFlip> out = new ArrayList<>();
 		for (Map.Entry<String, DataClient.Live> e : all.entrySet()) {
 			DataClient.Live l = e.getValue();
-			Market.BzFlip f = Market.bazaarFlip(e.getKey(), l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), l.orders(),
-					cfg.bazaarTaxPercent, cfg.bazaarSharePercent / 100.0, budget);
-			if (f == null || f.perUnit() <= 0 || f.pct() < 0.02 || f.pct() > 1.0) continue;
-			if (f.unitsPerHour() < 10 || f.order() > budget) continue;
+			Market.BzFlip f = flip(cfg, e.getKey(), l, budget);
+			if (f == null || f.perUnit() <= 0 || f.pct() < 0.02 || f.pct() > cfg.bazaarMaxSpreadPercent / 100.0) continue;
+			if (f.unitsPerHour() < 10 || f.qty() < 1 || f.totalProfit() < 1000) continue;
 			out.add(f);
 		}
 		out.sort((a, b) -> Double.compare(b.coinsPerHour(), a.coinsPerHour()));
@@ -45,6 +44,12 @@ final class Bazaar {
 		rankedAt = now;
 		rankedBudget = budget;
 		return ranked;
+	}
+
+	/** Volume-sized flip for one product with your settings. */
+	static Market.BzFlip flip(SkyPriceConfig cfg, String id, DataClient.Live l, double budget) {
+		return Market.bazaarFlip(id, l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), l.orders(), cfg.bazaarTaxPercent,
+				cfg.bazaarSharePercent / 100.0, budget, Math.max(0.25, cfg.bazaarRoundHours));
 	}
 
 	/** "Enchanted Diamond" (any colour codes, "64x " prefixes, "BUY "/"SELL " prefixes) → ENCHANTED_DIAMOND, or null. */

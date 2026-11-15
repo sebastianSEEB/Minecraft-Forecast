@@ -230,9 +230,10 @@ public final class SkyPriceClient implements ClientModInitializer {
 							for (int i = 0; i < Math.min(10, list.size()); i++) {
 								Market.BzFlip f = list.get(i);
 								ctx.getSource().sendFeedback(HudFormatter.line((i + 1) + ". ", HudFormatter.AQUA, Bazaar.name(f.id(), data), HudFormatter.WHITE,
-										"  order " + HudFormatter.fmt(f.order()) + " → offer " + HudFormatter.fmt(f.offer()), HudFormatter.GRAY,
-										String.format(Locale.ROOT, "  +%s each (%.0f%%) · ≈+%s/h", HudFormatter.fmt(f.perUnit()), f.pct() * 100,
-												HudFormatter.fmt(f.coinsPerHour())), 0x55FF55));
+										String.format(Locale.ROOT, "  order %,d × %s → offer %s", f.qty(), HudFormatter.fmt(f.order()), HudFormatter.fmt(f.offer())),
+										HudFormatter.GRAY,
+										String.format(Locale.ROOT, "  +%s total (%.0f%%) in ~%s ≈ +%s/h", HudFormatter.fmt(f.totalProfit()), f.pct() * 100,
+												Market.dur(f.roundHours()), HudFormatter.fmt(f.profitPerHour())), 0x55FF55));
 							}
 							return 1;
 						}))

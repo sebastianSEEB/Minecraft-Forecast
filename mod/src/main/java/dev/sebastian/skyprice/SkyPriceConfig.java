@@ -67,6 +67,8 @@ final class SkyPriceConfig {
 	boolean alertSound = true;        // ping on: item sold, outbid, bazaar order filled / outbid, big new flip
 	double bazaarTaxPercent = 1.25;   // 1.25 % default; lower with the Bazaar Flipper account upgrade
 	double bazaarSharePercent = 10;   // part of a product's traded volume you can expect to fill
+	double bazaarRoundHours = 2;      // one flip round (buy order fills + sell offer sells) should take at most this long
+	double bazaarMaxSpreadPercent = 60;// wider spreads are thin / manipulated markets: never suggested
 	boolean bazaarOrderTracker = true;// read "Your Bazaar Orders" and warn when an order is outbid / undercut
 	boolean profitTracker = true;     // log buys + sells from chat → realized profit per flip (config/skyprice-trades.csv)
 	String lastSummaryDay = "";       // the "Yesterday: +X from N flips" message is shown once per day

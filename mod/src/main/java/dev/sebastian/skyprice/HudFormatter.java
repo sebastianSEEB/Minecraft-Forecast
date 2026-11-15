@@ -175,25 +175,28 @@ final class HudFormatter {
 					fmt(live.buy() - 0.1), GREEN, " → " + fmt((live.buy() - 0.1) * (1 - tax)) + " each after tax", GRAY));
 			return;
 		}
-		Market.BzFlip f = Market.bazaarFlip(str(d, "k"), live.buy(), live.sell(), live.buyWeek(), live.sellWeek(), live.orders(),
-				cfg.bazaarTaxPercent, cfg.bazaarSharePercent / 100.0, cfg.budget(FcfPanel.purse()));
+		Market.BzFlip f = Bazaar.flip(cfg, str(d, "k"), live, cfg.budget(FcfPanel.purse()));
 		if (f == null) return;
-		if (f.pct() > 1.0) {                                   // a gap this wide is a thin / manipulated market, not a flip
+		if (f.pct() > cfg.bazaarMaxSpreadPercent / 100.0) {           // a gap this wide is a thin / manipulated market
 			out.add(line(String.format(Locale.ROOT, " ⇄ spread %.0f%%: too wide to flip (thin or manipulated). Buying a few to use is fine.",
 					f.pct() * 100), YELLOW));
 			return;
 		}
-		if (f.perUnit() > 0 && f.pct() >= 0.01) {
-			out.add(line(" ⇄ FLIP", GREEN, ": buy order ", GRAY, fmt(f.order()), WHITE, " → sell offer ", GRAY, fmt(f.offer()), WHITE,
-					String.format(Locale.ROOT, " = +%s each (%.1f%%) after tax", fmt(f.perUnit()), f.pct() * 100), GREEN));
-		} else {
+		if (f.perUnit() <= 0 || f.pct() < 0.01) {
 			out.add(line(" ⇄ no flip margin after the " + cfg.bazaarTaxPercent + "% tax", DARK));
+			return;
 		}
-		if (f.weekly() > 0) {
-			out.add(line("    " + fmt(f.unitsPerHour()) + " traded/h", GRAY,
-					f.perUnit() > 0 ? " · you ≈ +" + fmt(f.coinsPerHour()) + "/h with your budget" : "", f.perUnit() > 0 ? GREEN : GRAY,
-					f.competition() > 0 ? " · " + f.competition() + " buy orders" : "", DARK));
+		out.add(line(" ⇄ FLIP", GREEN, ": buy order ", GRAY, fmt(f.order()), WHITE, " → sell offer ", GRAY, fmt(f.offer()), WHITE,
+				String.format(Locale.ROOT, " = +%s each (%.1f%%) after tax", fmt(f.perUnit()), f.pct() * 100), GREEN));
+		if (f.qty() >= 1) {
+			out.add(line("    order " + String.format(Locale.ROOT, "%,d", f.qty()) + " (" + fmt(f.cost()) + ") → ", GRAY,
+					"+" + fmt(f.totalProfit()), GREEN, " in ~" + Market.dur(f.roundHours()) + " (fills " + Market.dur(f.fillHours())
+							+ ", sells " + Market.dur(f.sellHours()) + ") ≈ +" + fmt(f.profitPerHour()) + "/h", GRAY));
 		}
+		if (!cfg.simpleMode)
+			out.add(line("    traded/h: " + fmt(f.sellFillPerHour() / Math.max(1e-9, cfg.bazaarSharePercent / 100.0)) + " insta-buys · "
+					+ fmt(f.buyFillPerHour() / Math.max(1e-9, cfg.bazaarSharePercent / 100.0)) + " insta-sells · you catch "
+					+ (int) cfg.bazaarSharePercent + "%" + (f.competition() > 0 ? " · " + f.competition() + " buy orders" : ""), DARK));
 	}
 
 	private static void history(List<Component> out, JsonObject stats, String side) {

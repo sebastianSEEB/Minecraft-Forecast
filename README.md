@@ -252,7 +252,7 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 | Tab | What you see | Click |
 |---|---|---|
 | **AH** | the best auctions on the AH page you're looking at (numbered 1–5 on the slots too) + **market flips** from the mod's own AH scan: cheapest BIN clearly under the next copies, resale capped at fair value, sells often enough, fits your budget | opens the auction (`/viewauction`) |
-| **Bazaar** | **your orders** (✔ top / ⚠ outbid / ⚠ undercut, read when you open *Your Bazaar Orders*) + **best flips**: buy order at top + 0.1 → sell offer at cheapest − 0.1, after the 1.25 % tax, × the volume you can fill = coins/hour | copies the buy order price |
+| **Bazaar** | **your orders** (✔ top / ⚠ outbid / ⚠ undercut, read when you open *Your Bazaar Orders*) + **volume-sized flips** (1.16.0+): buy order at top + 0.1 → sell offer at cheapest − 0.1 after the 1.25 % tax; your order fills from instant sells and your offer from instant buys (10 % of each), so it says **how many to order**, how long filling and selling take, the **total profit** and profit per hour (one round ≤ 2 h, `bazaarRoundHours`); today's realized bazaar profit in the header | 1st click copies the amount, 2nd the price |
 | **Craft** | best craft flips (published every 3 h) that fit your budget | shopping list in chat |
 | **Profit** | realized profit today / 7 days, best flip, recent flips (buys and sells from chat, matched first-in first-out) | |
 
