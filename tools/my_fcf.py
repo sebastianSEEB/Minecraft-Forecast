@@ -79,8 +79,14 @@ def main(name, out_dir, site="https://sebastianseeb.github.io/Minecraft-Forecast
             print("wallet:", e)
     summary = fcf.summarize(positions, wallet, True)
     positions.sort(key=lambda p: (p["role"] != "bid", p.get("status") != "winning", -(p.get("amount") or 0)))
+    # history: keep the last 7 days of scans (one point per run) from the previously published file
+    prev = get_json(f"{site}/data/positions.json?t={ts}") or {}
+    series = [p for p in ((prev.get("fcf") or {}).get("series") or []) if p.get("ts", 0) > ts - 7 * 86_400_000 and p.get("ts") != ts]
+    series.append({"ts": ts, "on_ah": round(summary["on_ah"]), "sales": round(summary["sales"]), "bids": round(summary["bids"]),
+                   "expected": round(summary["expected"]), "refunds": round(summary["refunds"]),
+                   "wallet": None if wallet is None else round(wallet), "fcf": None if wallet is None else round(summary["fcf"])})
     out = {"player": name, "updated": ts, "source": "GitHub Actions AH scan",
-           "fcf": {"updated": ts, "now": summary, "series": [], "positions": positions}}
+           "fcf": {"updated": ts, "now": summary, "series": series[-800:], "positions": positions}}
     if wallet_now:
         out["now"] = wallet_now
     Path(out_dir).mkdir(parents=True, exist_ok=True)

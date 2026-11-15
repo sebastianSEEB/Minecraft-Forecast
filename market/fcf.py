@@ -147,10 +147,15 @@ def fcf_report(c, now_ms: int) -> dict | None:
     flag = c.execute("SELECT v FROM meta WHERE k='bids_in_purse'").fetchone()
     in_purse = flag is None or flag[0] != "0"
     now = summarize(positions, wallet_now if wallet_now is not None else last["wallet"], in_purse)
+    wr = c.execute("SELECT purse FROM wallet ORDER BY ts DESC LIMIT 1").fetchone()
+    if wr is not None and wallet_now is not None:
+        now["purse"] = float(wr["purse"])
+        now["bank"] = max(0.0, wallet_now - float(wr["purse"]))
     by_hour: dict[int, dict] = {}
     for r in rows:
         by_hour[r["ts"] // HOUR_MS] = {"ts": (r["ts"] // HOUR_MS) * HOUR_MS, "fcf": r["fcf"], "fcf_conservative": r["fcf_conservative"],
-                                       "wallet": r["wallet"]}
+                                       "wallet": r["wallet"], "on_ah": r["fcf"] - (r["wallet"] or 0), "sales": r["sales"],
+                                       "bids": r["bids"], "expected": r["expected"], "refunds": r["refunds"]}
     series = [v for _, v in sorted(by_hour.items())][-24 * 90:]
 
     def ago(ms):

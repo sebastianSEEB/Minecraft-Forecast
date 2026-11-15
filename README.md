@@ -207,7 +207,7 @@ not sell at its price. Your listings and bids are found in every full AH scan (e
 the Wallet tab shows the waterfall, the FCF line over time and every open position. Turn off with `track_positions: false`.
 
 In game (mod 1.10.0+): open your inventory and click **FCF ▸** above it. A panel opens to the left with the same
-waterfall (your live purse from the sidebar + bank), the conservative FCF marker and your open positions; click a
+waterfall (your live purse from the sidebar + bank), the conservative FCF marker and your open positions (tab **Flow**), a pie of where your coins are tied up (tab **Tied up**) and a line chart of your FCF over 24 h / 7 d (tab **Trend**, your purse history is logged from the sidebar while you play); click a
 position to open that auction, click ⟳ to refresh. `/skyprice fcf` prints it in chat. Turn off with `"fcfButton": false`.
 
 **Without your PC:** `.github/workflows/positions.yml` scans the AH for SpookyHawk every 15 minutes on GitHub and

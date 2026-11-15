@@ -54,7 +54,16 @@ public final class SkyPriceClient implements ClientModInitializer {
 				.map(m -> m.getMetadata().getVersion().getFriendlyString()).orElse("?");
 		System.out.println("[SkyPrice] " + version + " loaded");
 		boolean[] greeted = {false};
+		int[] ticks = {0};
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			if (client.player != null && ++ticks[0] % 6000 == 1200) {     // every 5 min (1 min after joining)
+				try {
+					Double purse = PurseReporter.readPurse();
+					if (purse != null) PurseLog.record(purse);
+				} catch (RuntimeException ignored) {
+					// not in SkyBlock
+				}
+			}
 			if (greeted[0] || client.player == null) return;
 			greeted[0] = true;                         // once per game start: proves the mod is loaded
 			Chat.say(HudFormatter.line("[SkyPrice " + version + "] ", HudFormatter.GOLD,

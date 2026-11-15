@@ -127,3 +127,9 @@ a { color: var(--series-1); }
 .mcheck .row b { color: var(--text-primary); font-weight: 600; }
 .mcheck ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
 .mcheck li.l2 { color: var(--critical); } .mcheck li.l1 { color: var(--accent); }
+
+.fcf2 { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 18px; align-items: start; }
+@media (max-width: 760px) { .fcf2 { grid-template-columns: 1fr; } }
+.pie { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.pie table td { padding: 4px 6px; border-top: 0; }
+.pie .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }

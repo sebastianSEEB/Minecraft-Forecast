@@ -33,7 +33,11 @@ final class BidHelper {
 			RenderHook.register(screen, (s, painter) -> {
 				Highlight.paint(s, painter);
 				OutbidHud.paint(s, painter);
-				FcfPanel.paint(s, painter);
+				try {
+					FcfPanel.paint(s, painter);
+				} catch (RuntimeException e) {                 // never let a drawing bug break the inventory
+					System.err.println("[SkyPrice] FCF panel: " + e);
+				}
 			});
 			ScreenMouseEvents.afterMouseClick(screen).register((s, event, consumed) -> {
 				if (OutbidHud.click(s, event.x(), event.y())) return true;
