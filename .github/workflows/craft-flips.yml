@@ -31,7 +31,7 @@ jobs:
       - name: Get NEU recipes
         run: git clone -q --depth 1 https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO.git neu
       - name: Rank craft flips
-        run: python tools/craft_flips.py neu out "${{ inputs.budget || '35000000' }}" | tee -a $GITHUB_STEP_SUMMARY
+        run: set -o pipefail; python tools/craft_flips.py neu out "${{ inputs.budget || '35000000' }}" | tee -a $GITHUB_STEP_SUMMARY
       - name: Publish craft_flips.json to gh-pages
         run: |
           for attempt in 1 2 3; do

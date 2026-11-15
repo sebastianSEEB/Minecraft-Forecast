@@ -197,7 +197,7 @@ def main(repo, out_dir, budget="35000000"):
             if margin < MIN_MARGIN:
                 continue
             parts = []
-            for k, n in sorted(ings.items(), key=lambda kv: -kv[1] * (cost(k, 1)[0] or 0)):
+            for k, n in sorted(ings.items(), key=lambda kv: -kv[1] * (cost(kv[0], 1)[0] or 0)):
                 uc, how = cost(k, 1)
                 parts.append({"id": k, "n": n, "unit": round(uc, 1), "how": how})
             rows.append({"item": out, "name": names.get(out, out), "where": where, "cost": round(per), "sell": round(sell),
