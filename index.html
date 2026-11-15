@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SkyBlock Market — Bazaar & AH prices and forecasts</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>SkyBlock <span>Market</span></h1>
+      <div class="sub">Hypixel SkyBlock Bazaar &amp; Auction House prices, with forecasts from course forecasting models (EXC 3650)</div>
+    </div>
+    <div class="pill" id="fresh"><i></i><span>loading…</span></div>
+  </header>
+  <nav class="nav" id="nav"><a href="#" data-v="overview" class="on">Overview</a><a href="#season" data-v="season">Seasonality</a><a href="#wallet" data-v="wallet">Wallet</a></nav>
+
+  <div id="viewOverview">
+  <section class="grid kpis" id="kpis"></section>
+
+  <section class="grid three">
+    <div class="card">
+      <div class="toolbar" style="justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0">Biggest 24h moves</h2>
+        <div class="tabs" id="moverTabs"><button data-v="up" class="on">Rising</button><button data-v="down">Falling</button></div>
+      </div>
+      <ul class="list" id="movers"></ul>
+    </div>
+    <div class="card">
+      <div class="toolbar" style="justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0">Forecast: next 24h</h2>
+        <div class="tabs" id="fcTabs"><button data-v="up" class="on">Expected up</button><button data-v="down">Expected down</button></div>
+      </div>
+      <ul class="list" id="fcMoves"></ul>
+    </div>
+    <div class="card">
+      <h2>Bazaar flips <span class="muted small">margin, ≥ 50k traded/day</span></h2>
+      <ul class="list" id="flips"></ul>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:14px">
+    <h2>Underpriced BINs <span class="muted small" id="dealsInfo">≥ 20% under fair value, 1M+ items, profit after fees</span></h2>
+    <div style="overflow-x:auto"><table><thead><tr><th style="cursor:default">Item</th><th style="cursor:default">BIN</th><th style="cursor:default">Fair value</th>
+      <th style="cursor:default">Under fair</th><th style="cursor:default">Profit after fees</th><th style="cursor:default">Open in game</th></tr></thead><tbody id="deals"></tbody></table></div>
+  </section>
+
+  <section class="card" style="margin-bottom:14px">
+    <h2>Manipulation alerts <span class="muted small">wash trading, cornered supply, price spikes, thin order books</span></h2>
+    <ul class="list" id="alerts"></ul>
+  </section>
+
+  <section class="card" id="detail"></section>
+
+  <section class="card">
+    <div class="toolbar">
+      <h2 style="margin:0 8px 0 0">All items</h2>
+      <input type="search" id="q" placeholder="Search items… (e.g. hyperion, enchanted diamond)">
+      <div class="tabs" id="kindTabs"><button data-v="all" class="on">All</button><button data-v="bz">Bazaar</button><button data-v="ah">Auction House</button></div>
+      <span class="muted small" id="count"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="more"><button class="link" id="moreBtn">Show more</button></div>
+  </section>
+  </div>
+
+  <div id="viewWallet" style="display:none">
+    <section class="card" style="margin-bottom:14px">
+      <div class="dhead"><div><h2 id="wTitle" style="font-size:18px">Wallet</h2><div class="muted small" id="wSub"></div></div></div>
+      <div class="grid kpis" id="wKpis" style="margin-top:12px"></div>
+      <div class="grid kpis" id="wKpis2"></div>
+    </section>
+    <section class="card" style="margin-bottom:14px" id="wFcfCard">
+      <h2>Potential free cash flow <span class="muted small">if everything on the AH settled now</span></h2>
+      <div class="muted small" id="wFcfSub" style="max-width:900px"></div>
+      <div class="grid kpis" id="wFcfKpis" style="margin-top:12px"></div>
+      <div class="chart" id="wFcf"><div class="tip" id="wTip3"></div></div>
+      <div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th style="cursor:default">Position</th><th class="l" style="cursor:default">Item</th>
+        <th class="l" style="cursor:default">Status</th><th style="cursor:default">Price / your bid</th><th style="cursor:default">Est. value</th>
+        <th style="cursor:default">Cash in (after fees)</th><th style="cursor:default">Ends</th></tr></thead><tbody id="wPos"></tbody></table></div>
+    </section>
+    <section class="card" style="margin-bottom:14px">
+      <div class="toolbar" style="justify-content:space-between">
+        <h2 style="margin:0">Coins over time</h2>
+        <div class="tabs" id="wRange"><button data-v="168">7 days</button><button data-v="720" class="on">30 days</button><button data-v="2160">90 days</button></div>
+      </div>
+      <div class="legend" id="wLegend"></div>
+      <div class="chart" id="wChart"><div class="tip" id="wTip"></div></div>
+    </section>
+    <section class="card">
+      <h2>Gain / loss per hour <span class="muted small">last 7 days</span></h2>
+      <div class="chart" id="wBars"><div class="tip" id="wTip2"></div></div>
+    </section>
+  </div>
+
+  <div id="viewSeason" style="display:none">
+    <section class="card" style="margin-bottom:14px">
+      <h2>Seasonality: repeating price cycles</h2>
+      <div class="sub small" style="max-width:900px">
+        Every item is tested for three cycles: <b>daily</b> (24 h, player activity), <b>SkyBlock year</b> (124 h, in-game calendar events)
+        and <b>weekly</b> (168 h). Seasonal indices use the course's seasonal-index procedure (price ÷ centred moving average, averaged per position in the cycle).
+        A cycle only counts as <b>confirmed</b> if it repeats consistently (even vs odd cycles correlate ≥ 0.75), predicts the newest cycle
+        out-of-sample (≥ 20% lower error) and swings at least 2%. The list is sorted so the peaks that come <b>soonest</b> are at the top.
+      </div>
+      <div id="seasonCoverage" class="grid" style="grid-template-columns:repeat(3,1fr);margin-top:12px"></div>
+    </section>
+    <section class="card" id="seasonDetail" style="display:none;margin-bottom:14px"></section>
+    <section class="card">
+      <div class="toolbar">
+        <input type="search" id="sq" placeholder="Search items…">
+        <div class="tabs" id="cycleTabs"><button data-v="all" class="on">All cycles</button><button data-v="daily">Daily</button><button data-v="skyblock_year">SkyBlock year</button><button data-v="weekly">Weekly</button></div>
+        <div class="tabs" id="seasonSort"><button data-v="peak" class="on">Next peak first</button><button data-v="dip">Next dip first</button><button data-v="amp">Strongest</button></div>
+        <span class="muted small" id="scount"></span>
+      </div>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th style="cursor:default">Item</th><th style="cursor:default">Cycle</th><th style="cursor:default">Next peak</th><th style="cursor:default">Rise to peak</th>
+          <th style="cursor:default">Next dip</th><th style="cursor:default">Drop to dip</th><th style="cursor:default">Swing</th><th style="cursor:default">Confidence</th><th style="cursor:default">Price now</th></tr></thead>
+        <tbody id="stbody"></tbody></table></div>
+    </section>
+  </div>
+
+  <footer>
+    Data: Hypixel public API (bazaar every minute, every finished auction, full AH scan every 5 min), collected by a personal
+    collector and published as a static site. Prices are SkyBlock coins. Bazaar "price" = instant-buy price; auction "price" =
+    lowest BIN (or average sale if nothing is listed). Not affiliated with Hypixel.
+    <span id="genInfo"></span>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
