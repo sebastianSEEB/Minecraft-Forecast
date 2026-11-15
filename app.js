@@ -538,6 +538,15 @@ let WAL = null, wRange = 720;
 async function showWallet() {
   if (!WAL) {
     try { const r = await fetch("data/wallet.json", { cache: "no-store" }); WAL = r.ok ? await r.json() : {}; } catch (e) { WAL = {}; }
+    try {                                    // GitHub's 15-min AH scan of your positions (works without the PC)
+      const r = await fetch("data/positions.json", { cache: "no-store" });
+      const P = r.ok ? await r.json() : null;
+      if (P && P.fcf && (!WAL.fcf || P.fcf.updated > WAL.fcf.updated)) {
+        if (WAL.fcf && WAL.fcf.series) P.fcf.series = [...WAL.fcf.series.filter(p => p.ts < (P.fcf.series[0] || {}).ts), ...P.fcf.series];
+        if (WAL.now && P.fcf.now.wallet == null) { P.fcf.now.wallet = WAL.now.total; P.fcf.now.fcf += WAL.now.total; P.fcf.now.fcf_conservative += WAL.now.total; }
+        WAL.fcf = P.fcf;
+      }
+    } catch (e) { /* no positions published */ }
   }
   showFcf();
   if (!WAL.series) {
@@ -577,7 +586,7 @@ function showFcf() {
     + tile("Conservative FCF", fmt(n.fcf_conservative), "listings valued at min(price, estimated value)")
     + tile("Expected profit on wins", sign(n.expected_profit_on_wins), `${n.n_winning} winning · ${n.n_outbid} outbid${n.unvalued_wins ? ` · ${n.unvalued_wins} not valued yet` : ""}`)
     + tile("FCF change 24h", sign(F.change_24h), F.change_24h == null ? "needs 24 h of scans" : `7d ${sign(F.change_7d)}`);
-  drawFcf();
+  drawFcf(); drawPie(); drawFcfLine();
   const posRows = F.positions.map(p => {
     const ends = p.ended ? "ended" : inHours(p.end);
     const cash = p.role === "sale" ? p.net : p.status === "winning" ? p.expected_net : p.amount;
@@ -638,6 +647,72 @@ function drawFcf() {
       tip.style.left = (px + 14 + tip.offsetWidth > box.clientWidth ? px - tip.offsetWidth - 14 : px + 14) + "px"; tip.style.top = "8px"; });
     r.addEventListener("mouseleave", () => { tip.style.display = "none"; });
   });
+}
+
+const PIE_COLORS = ["var(--series-1)", "#1baf7a", "var(--accent)", "#b07cf0", "var(--text-muted)"];
+function drawPie() {
+  const n = WAL.fcf.now, wn = WAL.now || {};
+  const purse = n.purse != null ? n.purse : wn.purse != null ? wn.purse : (n.wallet || 0);
+  const bank = n.bank != null ? n.bank : wn.purse != null ? Math.max(0, (n.wallet || 0) - wn.purse) : 0;
+  const parts = [["Purse", purse], ["Bank", bank], ["Listed items", n.sales], ["In winning bids", n.bids], ["Outbid (to collect)", n.bids_subtracted ? 0 : n.refunds]]
+    .map(([l, v], i) => ({ l, v: Math.max(0, v || 0), c: PIE_COLORS[i] }));
+  const tot = parts.reduce((a, p) => a + p.v, 0), R = 80, C = 90;
+  let a0 = 0, svg = `<svg viewBox="0 0 180 180" width="180" height="180" role="img" aria-label="Where your coins are">`;
+  if (!tot) svg += `<circle cx="${C}" cy="${C}" r="${R}" fill="var(--surface-2)"/>`;
+  parts.forEach((p, i) => {
+    if (!p.v) return;
+    const a1 = a0 + p.v / tot * 2 * Math.PI, big = a1 - a0 > Math.PI ? 1 : 0;
+    const P = a => [C + R * Math.sin(a), C - R * Math.cos(a)];
+    const [x0, y0] = P(a0), [x1, y1] = P(a1);
+    svg += p.v === tot ? `<circle cx="${C}" cy="${C}" r="${R}" fill="${p.c}" data-p="${i}"/>`
+      : `<path d="M${C},${C} L${x0.toFixed(2)},${y0.toFixed(2)} A${R},${R} 0 ${big} 1 ${x1.toFixed(2)},${y1.toFixed(2)} Z" fill="${p.c}" stroke="var(--surface-1)" stroke-width="2" data-p="${i}"/>`;
+    a0 = a1;
+  });
+  svg += "</svg>";
+  const rows = parts.map(p => `<tr><td><span class="sw" style="background:${p.c}"></span>${p.l}</td><td class="num">${fmt(p.v)}</td>
+    <td class="num muted">${tot ? Math.round(p.v / tot * 100) : 0}%</td></tr>`).join("");
+  const top = [...WAL.fcf.positions].map(p => ({ p, v: p.role === "sale" ? p.net : p.amount })).sort((a, b) => b.v - a.v).slice(0, 5);
+  $("#wPie").innerHTML = `<div class="pie">${svg}<table>${rows}<tr><td><b>Total</b></td><td class="num"><b>${fmt(tot)}</b></td><td></td></tr></table></div>`
+    + `<div class="small muted" style="margin-top:8px">Biggest positions: ${top.map(t => `${esc(String(t.p.item || t.p.key).replace(/§./g, ""))} ${fmt(t.v)}`).join(" · ") || "none"}</div>`;
+  $("#wPie").querySelectorAll("[data-p]").forEach(el => el.insertAdjacentHTML("afterbegin", `<title>${parts[+el.dataset.p].l}: ${fmt(parts[+el.dataset.p].v)}</title>`));
+}
+
+let fRange = 168;
+function drawFcfLine() {
+  const box = $("#fLine"), W = Math.max(320, box.clientWidth), H = 220, P = { l: 56, r: 16, t: 10, b: 26 };
+  const n = WAL.fcf.now, t1 = Date.now(), t0 = t1 - fRange * 3600e3;
+  const pts = (WAL.fcf.series || []).filter(p => p.ts >= t0).map(p => ({ ts: p.ts, fcf: p.fcf, ah: p.on_ah != null ? p.on_ah : (p.fcf != null && p.wallet != null ? p.fcf - p.wallet : null) }));
+  pts.push({ ts: WAL.fcf.updated, fcf: n.wallet != null ? n.fcf : null, ah: n.on_ah });
+  box.querySelectorAll("svg,.empty").forEach(e => e.remove());
+  const keys = [["fcf", "Potential FCF", "var(--accent)"], ["ah", "On the AH", "var(--series-1)"]].filter(([k]) => pts.some(p => p[k] != null));
+  $("#fLegend").innerHTML = keys.map(([, l, c]) => `<span><span class="sw" style="background:${c}"></span>${l}</span>`).join("");
+  if (pts.length < 2) { box.insertAdjacentHTML("afterbegin", '<div class="empty">History builds up with every AH scan (every 15 min).</div>'); return; }
+  const vals = []; pts.forEach(p => keys.forEach(([k]) => p[k] != null && vals.push(p[k])));
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.08 || hi * 0.05 || 1; lo = Math.max(0, lo - pad); hi += pad;
+  const X = t => P.l + (t - t0) / (t1 - t0) * (W - P.l - P.r), Y = v => P.t + (1 - (v - lo) / (hi - lo)) * (H - P.t - P.b);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Potential FCF over time">`;
+  niceTicks(lo, hi, 4).forEach(v => { svg += `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${P.l - 8}" y="${Y(v) + 4}" text-anchor="end">${fmt(v)}</text>`; });
+  const step = fRange <= 24 ? 6 * 3600e3 : 86400e3 * Math.max(1, Math.round(fRange / 24 / 7));
+  const first = new Date(t0); first.setMinutes(0, 0, 0); if (fRange > 24) first.setHours(24, 0, 0, 0); else first.setHours(Math.ceil(first.getHours() / 6) * 6);
+  for (let t = first.getTime(); t <= t1; t += step) svg += `<text x="${X(t)}" y="${H - 8}" text-anchor="middle">${fRange <= 24 ? new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</text>`;
+  keys.forEach(([k, , c]) => {
+    let d = "", pen = false, prev = null;
+    pts.forEach(p => { if (p[k] == null || (prev && p.ts - prev > 3 * 3600e3)) pen = false; if (p[k] != null) { d += `${pen ? "L" : "M"}${X(p.ts).toFixed(1)},${Y(p[k]).toFixed(1)}`; pen = true; } prev = p.ts; });
+    svg += `<path d="${d}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`;
+  });
+  svg += `<line id="fhx" y1="${P.t}" y2="${H - P.b}" stroke="var(--text-muted)" style="display:none"/><rect id="fhit" x="${P.l}" y="${P.t}" width="${W - P.l - P.r}" height="${H - P.t - P.b}" fill="transparent"/></svg>`;
+  box.insertAdjacentHTML("afterbegin", svg);
+  const hit = $("#fhit", box), tip = $("#wTip4"), line = $("#fhx", box);
+  hit.addEventListener("mousemove", e => {
+    const r = hit.getBoundingClientRect(), t = t0 + (e.clientX - r.left) / r.width * (t1 - t0);
+    const p = pts.reduce((a, b) => Math.abs(b.ts - t) < Math.abs(a.ts - t) ? b : a), x = X(p.ts);
+    line.setAttribute("x1", x); line.setAttribute("x2", x); line.style.display = "";
+    tip.innerHTML = `<div class="small muted">${new Date(p.ts).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div>`
+      + keys.map(([k, l, c]) => `<div class="row"><span class="k"><span class="dot" style="background:${c}"></span>${l}</span><b class="num">${fmt(p[k])}</b></div>`).join("");
+    tip.style.display = "block"; const px = x * box.clientWidth / W;
+    tip.style.left = (px + 14 + tip.offsetWidth > box.clientWidth ? px - tip.offsetWidth - 14 : px + 14) + "px"; tip.style.top = "10px";
+  });
+  hit.addEventListener("mouseleave", () => { tip.style.display = "none"; line.style.display = "none"; });
 }
 
 function drawWallet() {
@@ -727,6 +802,8 @@ document.addEventListener("click", e => {
   if (el && (el.closest("#tbody") || el.closest(".list"))) openItem(el.dataset.k);
 });
 window.addEventListener("hashchange", route);
+$("#fRange").addEventListener("click", e => { const v = e.target.dataset.v; if (!v) return; fRange = +v;
+  [...$("#fRange").children].forEach(b => b.classList.toggle("on", b.dataset.v === v)); drawFcfLine(); });
 $("#wRange").addEventListener("click", e => { const v = e.target.dataset.v; if (!v) return; wRange = +v;
   [...$("#wRange").children].forEach(b => b.classList.toggle("on", b.dataset.v === v)); drawWallet(); });
 tabs("#cycleTabs", "cycle", () => {}); tabs("#seasonSort", "sort", () => {});
@@ -737,5 +814,5 @@ $("#stbody").addEventListener("click", e => {
   const tr = e.target.closest("tr[data-sk]");
   if (tr) { history.replaceState(null, "", `#season&item=${encodeURIComponent(tr.dataset.sk)}&cycle=${tr.dataset.cy}`); openSeason(tr.dataset.sk, tr.dataset.cy); }
 });
-let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (CURRENT && CURRENT.d) drawChart(); if (WAL && location.hash.startsWith("#wallet")) { if (WAL.fcf) drawFcf(); if (WAL.series) { drawWallet(); drawWalletBars(); } } }, 150); });
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (CURRENT && CURRENT.d) drawChart(); if (WAL && location.hash.startsWith("#wallet")) { if (WAL.fcf) { drawFcf(); drawFcfLine(); } if (WAL.series) { drawWallet(); drawWalletBars(); } } }, 150); });
 load();
