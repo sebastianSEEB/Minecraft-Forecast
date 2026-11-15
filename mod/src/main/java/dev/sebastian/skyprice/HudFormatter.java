@@ -178,6 +178,11 @@ final class HudFormatter {
 		Market.BzFlip f = Market.bazaarFlip(str(d, "k"), live.buy(), live.sell(), live.buyWeek(), live.sellWeek(), live.orders(),
 				cfg.bazaarTaxPercent, cfg.bazaarSharePercent / 100.0, cfg.budget(FcfPanel.purse()));
 		if (f == null) return;
+		if (f.pct() > 1.0) {                                   // a gap this wide is a thin / manipulated market, not a flip
+			out.add(line(String.format(Locale.ROOT, " ⇄ spread %.0f%%: too wide to flip (thin or manipulated). Buying a few to use is fine.",
+					f.pct() * 100), YELLOW));
+			return;
+		}
 		if (f.perUnit() > 0 && f.pct() >= 0.01) {
 			out.add(line(" ⇄ FLIP", GREEN, ": buy order ", GRAY, fmt(f.order()), WHITE, " → sell offer ", GRAY, fmt(f.offer()), WHITE,
 					String.format(Locale.ROOT, " = +%s each (%.1f%%) after tax", fmt(f.perUnit()), f.pct() * 100), GREEN));
@@ -189,7 +194,6 @@ final class HudFormatter {
 					f.perUnit() > 0 ? " · you ≈ +" + fmt(f.coinsPerHour()) + "/h with your budget" : "", f.perUnit() > 0 ? GREEN : GRAY,
 					f.competition() > 0 ? " · " + f.competition() + " buy orders" : "", DARK));
 		}
-		if (f.pct() > 1.0) out.add(line("    ⚠ margin over 100%: thin or manipulated, skip it", RED));
 	}
 
 	private static void history(List<Component> out, JsonObject stats, String side) {

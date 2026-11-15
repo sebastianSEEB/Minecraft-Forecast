@@ -173,14 +173,28 @@ final class AhScanner {
 		return v > 1_000_000 ? v * 0.01 : 0;
 	}
 
-	private static Double value(String key) {
+	/**
+	 * What one copy realistically sells for: fair value, but never above just under the cheapest competing BIN
+	 * (a level-1 pet's "fair" mixes level-100 sales; the cheapest listing is what you compete with). High-level pets
+	 * ([Lvl 80]+) keep their fair value, since the cheapest listings are usually low-level copies.
+	 */
+	static Double value(String key, String itemName) {
 		if (key == null) return null;
 		JsonObject d = SkyPriceClient.docFor(key, false);
 		if (d == null) return null;
-		Double fair = HudFormatter.num(HudFormatter.obj(d, "market"), "fair");
-		if (fair != null && fair > 0) return fair;
-		Double lbin = HudFormatter.num(HudFormatter.obj(d, "summary"), "lbin");
-		return lbin != null && lbin > 0 ? lbin : HudFormatter.num(HudFormatter.obj(d, "summary"), "avg");
+		Double fair = Verdict.fair(d);
+		Double lowest = HudFormatter.num(HudFormatter.obj(d, "market", "listed"), "lowest");
+		if (lowest == null) lowest = HudFormatter.num(HudFormatter.obj(d, "summary"), "lbin");
+		if (lowest != null && lowest <= 0) lowest = null;
+		if (fair == null || fair <= 0) return lowest;
+		if (lowest == null || key.startsWith("PET_") && petLevel(itemName) >= 80) return fair;
+		return Math.min(fair, Market.undercut(lowest));
+	}
+
+	static int petLevel(String itemName) {
+		if (itemName == null) return 0;
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\[Lvl (\\d+)\\]").matcher(itemName);
+		return m.find() ? Integer.parseInt(m.group(1)) : 0;
 	}
 
 	private static void build(List<JsonObject> mine, String me, long ts) {
@@ -197,7 +211,7 @@ final class AhScanner {
 				// unknown item: still counted, without a value
 			}
 			if (key[0] != null) SkyPriceClient.docFor(key[0], true);      // warm prices for next time / the tooltip
-			Double unitVal = value(key[0]);
+			Double unitVal = value(key[0], a.has("item_name") ? a.get("item_name").getAsString() : null);
 			Double val = unitVal == null ? null : unitVal * count[0];
 			double top = num(a, "highest_bid_amount");
 			JsonObject p = new JsonObject();
