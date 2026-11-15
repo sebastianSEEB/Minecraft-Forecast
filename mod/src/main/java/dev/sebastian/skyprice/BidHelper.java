@@ -31,8 +31,12 @@ final class BidHelper {
 		ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
 			if (!(screen instanceof AbstractContainerScreen<?>)) return;
 			RenderHook.register(screen, (s, painter) -> {
-				Highlight.paint(s, painter);
-				OutbidHud.paint(s, painter);
+				try {
+					Highlight.paint(s, painter);
+					OutbidHud.paint(s, painter);
+				} catch (RuntimeException e) {
+					System.err.println("[SkyPrice] overlay: " + e);
+				}
 				try {
 					FcfPanel.paint(s, painter);
 					if (s instanceof net.minecraft.client.gui.screens.inventory.InventoryScreen) Erp.paint(s, painter);

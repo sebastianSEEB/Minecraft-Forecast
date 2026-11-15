@@ -60,16 +60,21 @@ final class CoflClient {
 		this.cfg = cfg;
 	}
 
-	/** SkyCofl item tag + filter query for one of our keys. */
-	static String path(String key) {
+	/** Full SkyCofl URL for one of our keys + endpoint ("/history/week", "/bin"); pets get ?Rarity=. */
+	static String url(String key, String endpoint) {
+		String tag = key, query = "";
 		if (key.startsWith("PET_")) {
 			int us = key.lastIndexOf('_');
 			String tier = key.substring(us + 1);
 			for (String t : Valuation.TIERS) {
-				if (t.equals(tier)) return key.substring(0, us) + "%s?Rarity=" + tier;
+				if (t.equals(tier)) {
+					tag = key.substring(0, us);
+					query = "?Rarity=" + tier;
+				}
 			}
 		}
-		return URLEncoder.encode(key, StandardCharsets.UTF_8) + "%s";
+		// no String.format here: encoded ids contain '%' (e.g. %3A), which format() would misread
+		return BASE + URLEncoder.encode(tag, StandardCharsets.UTF_8) + endpoint + query;
 	}
 
 	private CompletableFuture<JsonElement> get(String url) {
@@ -119,13 +124,12 @@ final class CoflClient {
 	}
 
 	private void refresh(String key, Entry old) {
-		String p = path(key);
 		long now = System.currentTimeMillis();
 		boolean needHistory = old == null || now - old.at() > TTL_MS;
-		CompletableFuture<JsonElement> hist = needHistory ? get(BASE + String.format(p, "/history/week"))
+		CompletableFuture<JsonElement> hist = needHistory ? get(url(key, "/history/week"))
 				: CompletableFuture.completedFuture(old.history());
 		hist.handle((h, err) -> err != null ? (old == null ? null : old.history()) : h)
-				.thenCompose(h -> get(BASE + String.format(p, "/bin")).handle((b, err) -> {
+				.thenCompose(h -> get(url(key, "/bin")).handle((b, err) -> {
 					JsonArray ha = h != null && h.isJsonArray() ? h.getAsJsonArray() : null;
 					JsonObject bo = b != null && b.isJsonObject() ? b.getAsJsonObject() : (old == null ? null : old.bin());
 					boolean empty = (ha == null || ha.isEmpty()) && (bo == null || HudFormatter.num(bo, "lowest") == null

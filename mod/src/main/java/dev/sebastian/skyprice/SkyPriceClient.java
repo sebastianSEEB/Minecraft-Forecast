@@ -37,17 +37,21 @@ public final class SkyPriceClient implements ClientModInitializer {
 		Valuation.init(data);
 
 		ItemTooltipCallback.EVENT.register((stack, tooltipContext, tooltipFlag, lines) -> {
-			if (!config.enabled) return;
-			String key = ItemKeys.keyFor(stack);
-			if (key == null) return;                       // not a SkyBlock item
-			Verdict.Listing listing = config.showVerdict ? Verdict.listing(lines, stack.getCount()) : null;
-			Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null);
-			if (r == null || r.lines().isEmpty()) return;
-			if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
-			if (r.nextBid() != null && r.bidCap() != null && r.maxBid() != null)
-				BidHelper.hovered(key, r.suggestedBid(), r.nextBid(), r.bidCap(), r.maxBid(), r.lowestBin());
-			lines.add(Component.empty());
-			lines.addAll(r.lines());
+			try {
+				if (!config.enabled) return;
+				String key = ItemKeys.keyFor(stack);
+				if (key == null) return;                       // not a SkyBlock item
+				Verdict.Listing listing = config.showVerdict ? Verdict.listing(lines, stack.getCount()) : null;
+				Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null);
+				if (r == null || r.lines().isEmpty()) return;
+				if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
+				if (r.nextBid() != null && r.bidCap() != null && r.maxBid() != null)
+					BidHelper.hovered(key, r.suggestedBid(), r.nextBid(), r.bidCap(), r.maxBid(), r.lowestBin());
+				lines.add(Component.empty());
+				lines.addAll(r.lines());
+			} catch (RuntimeException e) {          // a SkyPrice bug must never crash the game
+				System.err.println("[SkyPrice] tooltip: " + e);
+			}
 		});
 
 		Highlight.init(config, data);
