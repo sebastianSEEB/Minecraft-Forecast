@@ -26,11 +26,16 @@ final class Bazaar {
 
 	private Bazaar() {}
 
-	/** Best bazaar flips for this budget, best coins/hour first (recomputed at most every 20 s). */
+	/**
+	 * Best bazaar flips for this budget, best profit/hour first. A snapshot refreshed every bazaarRefreshMinutes (or when
+	 * your budget changes by more than 10 %), so the list doesn't jump around while you're placing orders.
+	 */
 	static List<Market.BzFlip> ranking(SkyPriceConfig cfg, DataClient data, double budget) {
 		long now = System.currentTimeMillis();
-		if (now - rankedAt < 20_000 && Math.abs(rankedBudget - budget) < 1) return ranked;
 		Map<String, DataClient.Live> all = data.bazaarAll();
+		boolean budgetMoved = rankedBudget <= 0 || Math.abs(rankedBudget - budget) > rankedBudget * 0.10;
+		if (!ranked.isEmpty() && !budgetMoved && now - rankedAt < Math.max(1, cfg.bazaarRefreshMinutes) * 60_000L) return ranked;
+		if (all.isEmpty()) return ranked;
 		List<Market.BzFlip> out = new ArrayList<>();
 		for (Map.Entry<String, DataClient.Live> e : all.entrySet()) {
 			DataClient.Live l = e.getValue();
@@ -41,9 +46,25 @@ final class Bazaar {
 		}
 		out.sort((a, b) -> Double.compare(b.coinsPerHour(), a.coinsPerHour()));
 		ranked = out.size() > 50 ? new ArrayList<>(out.subList(0, 50)) : out;
+		Map<String, Integer> r = new HashMap<>();
+		for (int i = 0; i < ranked.size(); i++) r.put(ranked.get(i).id(), i + 1);
+		ranks = r;
 		rankedAt = now;
 		rankedBudget = budget;
 		return ranked;
+	}
+
+	private static volatile Map<String, Integer> ranks = Map.of();
+
+	/** Rank (1 = best) of a product in the current snapshot, or 0. */
+	static int rank(String id) {
+		Integer r = id == null ? null : ranks.get(id);
+		return r == null ? 0 : r;
+	}
+
+	/** When the current snapshot was made (0 = none yet). */
+	static long snapshotAt() {
+		return rankedAt;
 	}
 
 	/** Volume-sized flip for one product with your settings. */

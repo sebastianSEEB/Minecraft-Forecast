@@ -98,6 +98,38 @@ final class Highlight {
 		pageAt = now;
 	}
 
+	/**
+	 * Bazaar menus: the products that are in the current flip list get a green border and their rank (same number as
+	 * in the FLIP panel), so you can see which ones to flip while browsing. Drawing only.
+	 */
+	static void paintBazaar(Screen screen, Painter p) {
+		if (cfg == null || data == null || !(screen instanceof AbstractContainerScreen<?> acs)) return;
+		String title = screen.getTitle().getString();
+		if (!title.contains("Bazaar") && !title.contains("➜")) return;
+		if (!(acs.getMenu() instanceof ChestMenu chest)) return;
+		int[] box = GuiPos.box(screen);
+		List<Slot> slots = chest.slots;
+		for (int i = 0; i < Math.min(chest.getRowCount() * 9, slots.size()); i++) {
+			Slot slot = slots.get(i);
+			ItemStack stack = slot.getItem();
+			if (stack.isEmpty()) continue;
+			String id = ItemKeys.keyFor(stack);
+			if (id == null) id = Bazaar.idForName(stack.getHoverName().getString(), data);
+			int r = Bazaar.rank(id);
+			if (r == 0 || r > 20) continue;
+			int x = box[0] + slot.x, y = box[1] + slot.y;
+			int border = r <= 5 ? 0xFF55FF55 : 0xFF2E9E5B;
+			p.fill(x - 1, y - 1, x + 17, y, border);
+			p.fill(x - 1, y + 16, x + 17, y + 17, border);
+			p.fill(x - 1, y, x, y + 16, border);
+			p.fill(x + 16, y, x + 17, y + 16, border);
+			String t = String.valueOf(r);
+			int tw = r >= 10 ? 13 : 7;
+			p.fill(x, y, x + tw, y + 9, 0xE0000000);
+			p.text(t, x + 1, y, 0xFF55FF55);
+		}
+	}
+
 	/** Profitable auctions on the AH page currently open (best first), empty when no AH page is open. */
 	static List<PageFlip> page() {
 		return System.currentTimeMillis() - pageAt < 1500 ? page : List.of();

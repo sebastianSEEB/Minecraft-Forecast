@@ -290,7 +290,9 @@ final class FlipPanel {
 		}
 		List<Market.BzFlip> list = Bazaar.ranking(cfg, data, budget());
 		double[] today = ProfitLog.marketTotal(ProfitLog.startOfDay(0), "BZ");
-		section(p, x, y, w, "Best flips", today[1] > 0 ? "today " + (today[0] >= 0 ? "+" : "") + HudFormatter.fmt(today[0]) : "per hour");
+		long age = Bazaar.snapshotAt() > 0 ? (System.currentTimeMillis() - Bazaar.snapshotAt()) / 60000 : -1;
+		String right = (age >= 0 ? "upd " + age + "m" : "") + (today[1] > 0 ? " · today " + (today[0] >= 0 ? "+" : "") + HudFormatter.fmt(today[0]) : "");
+		section(p, x, y, w, "Best flips", right.trim());
 		y += 11;
 		if (list.isEmpty()) {
 			p.text(FcfPanel.fit(data.bazaarAll().isEmpty() ? "Loading the bazaar…" : "Nothing fits your budget", w - 8), x + 4, y, MUTED);
@@ -304,23 +306,32 @@ final class FlipPanel {
 			row(p, x, y, w, name, "+" + HudFormatter.fmt(f.profitPerHour()) + "/h", GOOD, detail, () -> copyBazaar(f, name));
 			y += R2;
 		}
-		p.text(FcfPanel.fit("click: copy amount, again: price", w - 8), x + 4, y, DIM);
+		p.text(FcfPanel.fit("click: open + amount, again: price", w - 8), x + 4, y, DIM);
 		return y + 10;
 	}
 
 	private static String lastCopied;
 	private static long lastCopiedAt;
 
-	/** 1st click: copy the amount (Hypixel asks for the amount first). 2nd click within 20 s: copy the price. */
-	private static void copyBazaar(Market.BzFlip f, String name) {
+	/**
+	 * 1st click: open the product in the Bazaar (/bz search, the same as typing it yourself) and copy the amount
+	 * (Hypixel asks for the amount first). 2nd click within 20 s: copy the price. Amount and price are re-computed
+	 * from the live bazaar at click time, so they're never 5 minutes old.
+	 */
+	private static void copyBazaar(Market.BzFlip snap, String name) {
 		long now = System.currentTimeMillis();
+		DataClient.Live live = data.live(snap.id());
+		Market.BzFlip f = live != null ? Bazaar.flip(cfg, snap.id(), live, budget()) : snap;
+		if (f == null || f.qty() < 1) f = snap;
 		boolean second = f.id().equals(lastCopied) && now - lastCopiedAt < 20_000;
 		lastCopied = second ? null : f.id();
 		lastCopiedAt = now;
 		if (!second) {
+			Chat.command("bz " + name);                                   // you clicked it: same as typing /bz <name>
 			Minecraft.getInstance().keyboardHandler.setClipboard(Long.toString(f.qty()));
-			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, name + ": copied amount " + String.format(Locale.ROOT, "%,d", f.qty())
-					+ ". ", HudFormatter.WHITE, "Buy order → Custom amount → paste. Click the row again for the price.", HudFormatter.GRAY));
+			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, name + ": opening it, copied amount "
+					+ String.format(Locale.ROOT, "%,d", f.qty()) + ". ", HudFormatter.WHITE,
+					"Create Buy Order → Custom amount → paste. Click the row again for the price.", HudFormatter.GRAY));
 			return;
 		}
 		String price = String.format(Locale.ROOT, "%.1f", f.order());

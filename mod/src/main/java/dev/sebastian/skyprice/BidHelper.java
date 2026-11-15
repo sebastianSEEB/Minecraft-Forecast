@@ -48,6 +48,7 @@ final class BidHelper {
 			RenderHook.register(screen, (s, painter) -> {
 				try {
 					Highlight.paint(s, painter);
+					Highlight.paintBazaar(s, painter);
 					OutbidHud.paint(s, painter);
 				} catch (RuntimeException e) {
 					System.err.println("[SkyPrice] overlay: " + e);
