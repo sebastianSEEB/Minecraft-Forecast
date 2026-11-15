@@ -67,6 +67,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		BzOrders.init(config, data);
 		FlipFeed.init(config);
 		FlipPanel.init(config, data);
+		SignFill.init(config, data);
 		FcfPanel.init(config, data);
 		Erp.init(config, data);
 		String version = net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer("skyprice")

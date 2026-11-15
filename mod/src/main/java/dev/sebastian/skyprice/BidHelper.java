@@ -44,7 +44,9 @@ final class BidHelper {
 		cfg = config;
 		ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
 			current = screen;
+			SignFill.signOpened(screen);
 			if (!(screen instanceof AbstractContainerScreen<?>)) return;
+			SignFill.containerOpened(screen);
 			RenderHook.register(screen, (s, painter) -> {
 				try {
 					Highlight.paint(s, painter);

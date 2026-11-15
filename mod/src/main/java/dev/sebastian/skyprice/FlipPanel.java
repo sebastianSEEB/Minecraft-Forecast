@@ -356,8 +356,9 @@ final class FlipPanel {
 				kb.setClipboard(name);
 				bzSentAt = now;
 				Chat.command("bz " + name);                                // you clicked it: same as typing /bz <name>
-				Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, "1/3 " + name + ": opening it, name copied. ", HudFormatter.WHITE,
-						"No cookie? Bazaar → Search (green box) → Ctrl+V → Done. Then click this row again for the amount.", HudFormatter.GRAY));
+				Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, name + " picked. ", HudFormatter.WHITE,
+						"In the Bazaar click Search (green box): the name is filled in, press Done → the item (cyan box) → Create Buy Order. "
+								+ "Amount and price signs fill themselves too.", HudFormatter.GRAY));
 			}
 			case 2 -> {
 				kb.setClipboard(Long.toString(f.qty()));
