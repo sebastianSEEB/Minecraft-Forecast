@@ -123,8 +123,12 @@ final class DataClient {
 		return local.thenCompose(j -> {
 			if (j != null) return CompletableFuture.completedFuture(new Doc(System.currentTimeMillis(), j, "your PC"));
 			if (cfg.dataUrl == null || cfg.dataUrl.isBlank()) return CompletableFuture.completedFuture(null);
-			return getJson(cfg.dataUrl + "/wallet.json", 10).handle((r, e) ->
-					e != null || r == null ? null : new Doc(System.currentTimeMillis(), r, "website"));
+			// positions.json: GitHub scans the AH for you every 15 min; wallet.json: published by your PC collector
+			return getJson(cfg.dataUrl + "/positions.json", 10).handle((r, e) -> e != null ? null : r).thenCompose(r -> {
+				if (r != null && r.has("fcf")) return CompletableFuture.completedFuture(new Doc(System.currentTimeMillis(), r, "website"));
+				return getJson(cfg.dataUrl + "/wallet.json", 10).handle((w, e) ->
+						e != null || w == null ? null : new Doc(System.currentTimeMillis(), w, "website"));
+			});
 		});
 	}
 

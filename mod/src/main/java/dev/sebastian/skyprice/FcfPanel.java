@@ -130,8 +130,8 @@ final class FcfPanel {
 			p.fill(x, y, x + w, y + 1, EDGE);
 			p.text("Potential FCF", x + 5, y + 4, GOLD);
 			p.text("Wallet " + HudFormatter.fmt(wallet), x + 5, y + 18, TEXT);
-			p.text(rep == null && fetchedAt == 0 ? "Loading…" : "No positions yet.", x + 5, y + 32, MUTED);
-			p.text("Run the collector (run.py)", x + 5, y + 44, MUTED);
+			p.text(rep == null && fetchedAt == 0 && System.currentTimeMillis() - requestedAt < 15_000 ? "Loading…" : "No positions published yet.", x + 5, y + 32, MUTED);
+			p.text("The website updates every 15 min.", x + 5, y + 44, MUTED);
 			return;
 		}
 		boolean subtract = n.has("bids_subtracted") && n.get("bids_subtracted").getAsBoolean();

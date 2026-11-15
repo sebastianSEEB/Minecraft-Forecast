@@ -210,6 +210,10 @@ In game (mod 1.10.0+): open your inventory and click **FCF ▸** above it. A pan
 waterfall (your live purse from the sidebar + bank), the conservative FCF marker and your open positions; click a
 position to open that auction, click ⟳ to refresh. `/skyprice fcf` prints it in chat. Turn off with `"fcfButton": false`.
 
+**Without your PC:** `.github/workflows/positions.yml` scans the AH for SpookyHawk every 15 minutes on GitHub and
+publishes `data/positions.json` (valued with the published item models). The mod reads it whenever your PC collector
+isn't running and adds your live purse from the sidebar. Add a repository secret `HYPIXEL_API_KEY` to include the bank.
+
 ## Dashboard
 Static site (`dashboard/` + JSON exported by `market/publish.py`) on the `gh-pages` branch. It shows:
 * tracked items, AH sales and coins traded in the last 24h, and how much history has been collected

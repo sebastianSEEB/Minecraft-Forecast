@@ -1,0 +1,52 @@
+name: My AH positions (FCF)
+
+# Every 15 minutes: scan the AH for your listings and bids, value them, publish data/positions.json to
+# GitHub Pages. The mod's FCF panel reads it when your PC collector isn't running.
+# Optional: add a repository secret HYPIXEL_API_KEY to include purse + bank.
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      player:
+        description: "Minecraft name"
+        default: "SpookyHawk"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages-positions
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scan the AH for your positions
+        env:
+          HYPIXEL_API_KEY: ${{ secrets.HYPIXEL_API_KEY }}
+        run: python tools/my_fcf.py "${{ inputs.player || 'SpookyHawk' }}" out | tee -a $GITHUB_STEP_SUMMARY
+      - name: Publish positions.json to gh-pages
+        run: |
+          for attempt in 1 2 3; do
+            rm -rf site && git clone -q --depth 2 --branch gh-pages \
+              "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" site || exit 1
+            mkdir -p site/data && cp out/positions.json site/data/positions.json
+            cd site
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/positions.json
+            # keep gh-pages small: replace the previous positions commit instead of stacking new ones
+            if [ "$(git log -1 --format=%s)" = "positions update" ]; then git commit -q --amend -m "positions update"; \
+            else git commit -q -m "positions update"; fi
+            if git push -q --force-with-lease origin gh-pages; then exit 0; fi
+            cd .. && sleep 10
+          done
+          exit 1
