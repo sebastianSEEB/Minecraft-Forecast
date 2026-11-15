@@ -20,6 +20,12 @@ final class BidHelper {
 	record ListHover(String key, double price, long at) {}
 
 	private static volatile Hover last;
+	private static volatile Screen current;
+
+	/** The last screen opened (Minecraft.screen is not public in every version). */
+	static Screen currentScreen() {
+		return current;
+	}
 	private static volatile ListHover lastList;
 
 	private BidHelper() {}
@@ -37,6 +43,7 @@ final class BidHelper {
 	static void register(SkyPriceConfig config) {
 		cfg = config;
 		ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+			current = screen;
 			if (!(screen instanceof AbstractContainerScreen<?>)) return;
 			RenderHook.register(screen, (s, painter) -> {
 				try {

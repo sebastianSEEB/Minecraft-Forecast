@@ -345,7 +345,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 	}
 
 	private static boolean inBazaarMenu() {
-		var s = Minecraft.getInstance().screen;
+		var s = BidHelper.currentScreen();          // tooltips only render while a screen is open
 		if (s == null) return false;
 		String t = s.getTitle().getString();
 		return t.contains("Bazaar") || t.contains("➜");
