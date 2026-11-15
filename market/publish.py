@@ -144,6 +144,10 @@ def push_site(cfg: Config, site: Path | None = None) -> None:
         _git(site, "remote", "add", "origin", cfg.publish_repo)
     _git(site, "config", "user.name", cfg.publish_git_name)
     _git(site, "config", "user.email", cfg.publish_git_email)
+    # keep the files the 15-min GitHub AH job maintains (your positions + bazaar price history)
+    if _git(site, "fetch", "-q", "--depth", "1", "origin", "gh-pages", check=False).returncode == 0:
+        for f in ("data/positions.json", "data/bazaar_watch.json"):
+            _git(site, "checkout", "FETCH_HEAD", "--", f, check=False)
     _git(site, "add", "-A")
     has_commit = _git(site, "rev-parse", "--verify", "HEAD", check=False).returncode == 0
     msg = f"Market snapshot {time.strftime('%Y-%m-%d %H:%M')}"

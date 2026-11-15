@@ -90,6 +90,8 @@ jobs:
           git init -q -b gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch -q --depth 1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages || true
+          git checkout FETCH_HEAD -- data/positions.json data/bazaar_watch.json 2>/dev/null || true
           git add -A
           git commit -q -m "Live snapshot from GitHub Actions"
           git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages

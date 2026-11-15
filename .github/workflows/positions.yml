@@ -40,10 +40,11 @@ jobs:
             rm -rf site && git clone -q --depth 2 --branch gh-pages \
               "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" site || exit 1
             mkdir -p site/data && cp out/positions.json out/bazaar_watch.json site/data/
+            cp dashboard/index.html dashboard/app.js dashboard/style.css site/   # always the latest dashboard code
             cd site
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/positions.json data/bazaar_watch.json
+            git add data/positions.json data/bazaar_watch.json index.html app.js style.css
             # keep gh-pages small: replace the previous positions commit instead of stacking new ones
             if [ "$(git log -1 --format=%s)" = "positions update" ]; then git commit -q --amend -m "positions update"; \
             else git commit -q -m "positions update"; fi
