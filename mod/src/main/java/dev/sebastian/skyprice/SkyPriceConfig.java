@@ -67,6 +67,8 @@ final class SkyPriceConfig {
 	boolean alertSound = true;        // ping on: item sold, outbid, bazaar order filled / outbid, big new flip
 	double bazaarTaxPercent = 1.25;   // 1.25 % default; lower with the Bazaar Flipper account upgrade
 	double bazaarSharePercent = 10;   // part of a product's traded volume you can expect to fill
+	boolean priceChart = true;        // big 7-day price chart beside the menu while you hover an auction item
+	boolean manipMarkers = true;      // red "!" on AH items that look manipulated (price spike, buyout, inflated listings)
 	boolean signFill = true;          // pre-fill the Bazaar search / amount / price signs for the flip you clicked (you press Done)
 	int bazaarRefreshMinutes = 5;     // the bazaar flip list is a snapshot, refreshed this often (prices copied on click are live)
 	double bazaarRoundHours = 2;      // one flip round (buy order fills + sell offer sells) should take at most this long

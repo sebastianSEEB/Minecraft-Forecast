@@ -29,10 +29,29 @@ final class Highlight {
 		void text(String text, int x, int y, int argb);
 	}
 
-	private record Cached(int stackId, long at, int level, String name, double price, double profit, double eta, boolean bid) {
+	private record Cached(int stackId, long at, int level, String name, double price, double profit, double eta, boolean bid, boolean manip) {
 		Cached(int stackId, long at) {
-			this(stackId, at, 0, null, 0, 0, Double.NaN, false);
+			this(stackId, at, 0, null, 0, 0, Double.NaN, false, false);
 		}
+
+		Cached(int stackId, long at, boolean manip) {
+			this(stackId, at, 0, null, 0, 0, Double.NaN, false, manip);
+		}
+	}
+
+	private static long warmFrom;
+	private static int warmed;
+
+	/** Fetch SkyCofl prices for a few visible items without one (≤ 12 per 20 s), so manipulation shows up while you browse. */
+	private static JsonObject docOrWarm(String key, long now) {
+		JsonObject d = SkyPriceClient.docFor(key, false);
+		if (d != null || !cfg.manipMarkers) return d;
+		if (now - warmFrom > 20_000) { warmFrom = now; warmed = 0; }
+		if (warmed < 12) {
+			warmed++;
+			return SkyPriceClient.docFor(key, true);
+		}
+		return null;
 	}   // level: 0 none, 1 worth it, 2 strong deal
 
 	/** A profitable auction on the AH page you're looking at (for the FLIP panel's "On this page"). */
@@ -72,6 +91,12 @@ final class Highlight {
 			if (c == null || c.stackId() != id || now - c.at() > 2000) {
 				c = evaluate(stack, id, now);
 				cache.put(i, c);
+			}
+			if (c.manip() && cfg.manipMarkers) {                          // red "!" = looks manipulated
+				Slot sl = slot;
+				int mx = left + sl.x + 10, my = top + sl.y;
+				p.fill(mx, my, mx + 6, my + 9, 0xF0AA0000);
+				p.text("!", mx + 1, my, 0xFFFFFFFF);
 			}
 			if (c.level() == 0) continue;
 			found.add(new PageFlip(i, 0, c.name(), c.price(), c.profit(), c.eta(), c.bid()));
@@ -182,16 +207,18 @@ final class Highlight {
 			if (Verdict.ownListing(lines, stack.getCount(), SkyPriceClient.playerName()) != null) return new Cached(id, now);
 			Verdict.Listing listing = Verdict.listing(lines, stack.getCount());
 			if (listing == null) return new Cached(id, now);                // not an auction listing
-			JsonObject dj = SkyPriceClient.docFor(key, false);              // SkyCofl only if already cached (no burst of requests)
+			JsonObject dj = docOrWarm(key, now);                         // SkyCofl: cached, or a few fetched per page
 			if (dj == null) return new Cached(id, now);
+			boolean manip = Market.hasSevereFlag(dj);
+			if (manip) return new Cached(id, now, true);                 // never a flip border on a manipulated item
 			Valuation.Estimate est = cfg.valueUpgrades ? Valuation.estimate(dj, key, Valuation.parse(stack)) : null;
 			Verdict.Result r = Verdict.evaluate(dj, listing, null, cfg, est);
-			if (r.banner() == null || r.profit() == null) return new Cached(id, now);   // not profitable / not liquid / risky
+			if (r.banner() == null || r.profit() == null) return new Cached(id, now);   // not profitable / not liquid
 			Double fair = est != null ? Double.valueOf(est.value()) : Verdict.fair(dj);
 			int level = fair != null && listing.price() <= fair * (1 - cfg.dealMinDiscountPercent / 100.0) ? 2 : 1;
 			String name = stack.getHoverName().getString().replaceAll("§.", "");
 			double eta = r.etaHours() == null ? Double.NaN : r.etaHours();
-			return new Cached(id, now, level, name, listing.bin() ? listing.price() : r.suggestedBid(), r.profit(), eta, !listing.bin());
+			return new Cached(id, now, level, name, listing.bin() ? listing.price() : r.suggestedBid(), r.profit(), eta, !listing.bin(), false);
 		} catch (RuntimeException e) {
 			return new Cached(id, now);
 		}

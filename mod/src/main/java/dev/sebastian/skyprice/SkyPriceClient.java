@@ -50,6 +50,8 @@ public final class SkyPriceClient implements ClientModInitializer {
 				Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null, mine);
 				if (r == null || r.lines().isEmpty()) return;
 				if (mine != null && r.listPrice() != null) BidHelper.hoveredList(key, r.listPrice());
+				if (!data.bazaarAll().containsKey(key))           // auction items: 7-day chart beside the menu
+					PriceChart.hovered(key, stack.getHoverName().getString().replaceAll("§.", ""), listing != null ? listing.price() : null);
 				if (config.showFlipBanner && r.banner() != null && !lines.isEmpty()) lines.add(1, r.banner());   // under the item name
 				if (r.nextBid() != null && r.bidCap() != null && r.maxBid() != null)
 					BidHelper.hovered(key, r.suggestedBid(), r.nextBid(), r.bidCap(), r.maxBid(), r.lowestBin());
@@ -68,6 +70,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		FlipFeed.init(config);
 		FlipPanel.init(config, data);
 		SignFill.init(config, data);
+		PriceChart.init(config);
 		FcfPanel.init(config, data);
 		Erp.init(config, data);
 		String version = net.fabricmc.loader.api.FabricLoader.getInstance().getModContainer("skyprice")

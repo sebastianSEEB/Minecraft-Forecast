@@ -81,7 +81,7 @@ final class CoflClient {
 		long now = System.currentTimeMillis();
 		if (now < blockedUntil) return CompletableFuture.failedFuture(new IllegalStateException("rate limited"));
 		long slot = Math.max(now, nextSlot);
-		nextSlot = slot + 400;
+		nextSlot = slot + 650;                              // ≈ 92 requests/min, under SkyCofl's 100/min
 		CompletableFuture<JsonElement> f = new CompletableFuture<>();
 		queue.schedule(() -> {
 			HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(10))
@@ -117,6 +117,33 @@ final class CoflClient {
 		if (fetch && stale && inFlight.putIfAbsent(key, true) == null) refresh(key, e);
 		if (e == null || e.empty()) return null;
 		return build(key, e);
+	}
+
+	/**
+	 * The last 7 days of SkyCofl sales for an auction item: [time, min, max, avg, volume] per period, oldest first.
+	 * Null while loading or when SkyCofl has nothing. Used by the price chart beside the AH.
+	 */
+	List<double[]> week(String key, boolean fetch) {
+		doc(key, fetch);
+		Entry e = key == null ? null : cache.get(key);
+		if (e == null || e.history() == null) return null;
+		List<double[]> pts = points(e);
+		pts.sort((a, b) -> Double.compare(a[0], b[0]));
+		return pts;
+	}
+
+	private static List<double[]> points(Entry e) {
+		List<double[]> pts = new ArrayList<>();            // [time, min, max, avg, volume]
+		if (e.history() == null) return pts;
+		for (JsonElement el : e.history()) {
+			if (!el.isJsonObject()) continue;
+			JsonObject o = el.getAsJsonObject();
+			Double avg = HudFormatter.num(o, "avg");
+			if (avg == null || avg <= 0) continue;
+			Double mn = HudFormatter.num(o, "min"), mx = HudFormatter.num(o, "max"), vol = HudFormatter.num(o, "volume");
+			pts.add(new double[]{time(o), mn == null ? avg : mn, mx == null ? avg : mx, avg, vol == null ? 0 : vol});
+		}
+		return pts;
 	}
 
 	boolean loading(String key) {
@@ -159,17 +186,7 @@ final class CoflClient {
 	/** Same shape as our published item docs (summary / stats / market), marked source = SkyCofl. */
 	private static JsonObject build(String key, Entry e) {
 		long now = System.currentTimeMillis();
-		List<double[]> pts = new ArrayList<>();            // [time, min, max, avg, volume]
-		if (e.history() != null) {
-			for (JsonElement el : e.history()) {
-				if (!el.isJsonObject()) continue;
-				JsonObject o = el.getAsJsonObject();
-				Double avg = HudFormatter.num(o, "avg");
-				if (avg == null || avg <= 0) continue;
-				Double mn = HudFormatter.num(o, "min"), mx = HudFormatter.num(o, "max"), vol = HudFormatter.num(o, "volume");
-				pts.add(new double[]{time(o), mn == null ? avg : mn, mx == null ? avg : mx, avg, vol == null ? 0 : vol});
-			}
-		}
+		List<double[]> pts = points(e);
 		JsonObject d24 = window(pts, now - 86_400_000L), d7 = window(pts, 0);
 		Double lowest = HudFormatter.num(e.bin(), "lowest"), second = HudFormatter.num(e.bin(), "secondLowest");
 		if (lowest != null && lowest <= 0) lowest = null;
@@ -211,6 +228,14 @@ final class CoflClient {
 					"price jumped %.0f%% vs its 7-day level: possible manipulation, don't buy to flip", (jump - 1) * 100)));
 			else if (jump <= 0.65) flags.add(flag("crash", 1, String.format(java.util.Locale.ROOT,
 					"price fell %.0f%% vs its 7-day level: may keep falling", (1 - jump) * 100)));
+		}
+		if (d24 != null && d7 != null) {
+			// buyout: far more sales than usual in the last day while the price climbs
+			double n24 = d24.get("n").getAsDouble(), nBefore = (d7.get("n").getAsDouble() - n24) / 6.0;
+			double jump = d7.get("med").getAsDouble() > 0 ? d24.get("med").getAsDouble() / d7.get("med").getAsDouble() : 1;
+			if (nBefore > 0 && n24 >= 3 * nBefore && n24 >= 6 && jump >= 1.2)
+				flags.add(flag("buyout", 2, String.format(java.util.Locale.ROOT,
+						"%.0f sales in 24h vs ~%.0f/day before while the price rose %.0f%%: looks like a buyout", n24, nBefore, (jump - 1) * 100)));
 		}
 		if (lowest != null && d7 != null && lowest > d7.get("med").getAsDouble() * 1.6)
 			flags.add(flag("lbin_high", 2, "cheapest BIN is far above recent sales: listings look inflated"));

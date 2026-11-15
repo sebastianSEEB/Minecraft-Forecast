@@ -67,6 +67,11 @@ final class BidHelper {
 				} catch (RuntimeException e) {                 // never let a drawing bug break the inventory
 					System.err.println("[SkyPrice] FCF/ERP panel: " + e);
 				}
+				try {
+					PriceChart.paint(s, painter);              // on top: only while you hover an auction item
+				} catch (RuntimeException e) {
+					System.err.println("[SkyPrice] chart: " + e);
+				}
 			});
 			ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> {
 				try {

@@ -268,6 +268,17 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 - Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`.
 - Nothing is automated: the mod only shows, opens what you click and copies prices. You buy, bid, list and claim yourself.
 
+### 7-day chart + manipulation warnings (mod 1.19.0+)
+
+- Hover any auction item (AH, inventory, chests): a **big 7-day price chart** appears beside the menu: average sale
+  line, cheapest→highest band, volume bars, cheapest BIN (yellow), fair value (green dashes) and the hovered listing's
+  price (white). Outliers (one maxed copy) don't squash it: the y-axis uses the 5th–95th percentile and marks far-off
+  sales with a red tick. Turn off with `"priceChart": false`.
+- **Manipulation** is flagged on every AH item: a red **!** on the slot in the AH, a red banner on the chart and
+  "⚠ POSSIBLE MANIPULATION" at the top of the tooltip. Triggers: 24 h median ≥ 40 % above the 7-day level, the cheapest
+  BIN far above recent sales, or a buyout (3× the usual daily sales while the price climbs ≥ 20 %). Flagged items never
+  get a flip border. Prices for visible items are fetched gradually (≤ 12 per 20 s) to stay within SkyCofl's limits.
+
 ### SkyCofl fallback (mod 1.13.0+)
 When our own data has too little auction history for an item (no PC collector running, or the item wasn't traded
 while the website snapshot ran), the tooltip uses **SkyCofl** (sky.coflnet.com, free public SkyBlock price history):

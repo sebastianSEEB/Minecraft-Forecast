@@ -151,6 +151,8 @@ final class HudFormatter {
 			} else if (pro) {
 				out.add(line(" No sales in the last 24h", GRAY));
 			}
+			if (Market.hasSevereFlag(d))
+				out.add(line(" ⚠ POSSIBLE MANIPULATION: don't flip this (details below)", RED));
 			if (cfg.showVerdict || mine != null) {
 				Verdict.Result v = Verdict.evaluate(d, listing, null, cfg, est, mine);
 				out.addAll(v.lines());
