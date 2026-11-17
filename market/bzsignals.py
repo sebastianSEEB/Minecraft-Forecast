@@ -426,13 +426,22 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
     rank = {"high": 3, "medium": 2, "low": 1}
     signals.sort(key=lambda s: (rank[s["conf"]], min(s["edge"], 0.5) * math.sqrt(max(1.0, s["units_h"] * s["price"]))), reverse=True)
     corr.sort(key=lambda c: c["rho"], reverse=True)
+    shown = {s["id"] for s in signals[:80]} | {s.get("other") for s in signals[:80] if s.get("other")}
     return {
         "generated": now_ms, "source": source, "step_h": step_ms / 3_600_000, "products": len(pids),
         "liquid": len(ok), "pairs": len([c for c in corr if c["lag"] == 0]), "leads": len([c for c in corr if c["lag"] == 1]),
         "signals": signals[:80],
         "correlations": [dict(c, rho=round(c["rho"], 3), beta=round(c["beta"], 3)) for c in corr[:300]],
-        "names": {p: nm(p) for p in {s["id"] for s in signals} | {s.get("other") for s in signals if s.get("other")}},
+        "names": {p: nm(p) for p in shown},
+        # price history (mid) of every product in a suggestion, for the ERP chart: [first bucket, step ms, values…]
+        "spark": {p: _spark(G[p], step_ms) for p in shown if p in G},
     }
+
+
+def _spark(g: dict[int, tuple], step_ms: int) -> list:
+    first, last = min(g), max(g)
+    vals = [round(math.exp(g[k][0]), 4) if k in g else None for k in range(first, last + 1)]
+    return [first * step_ms, step_ms] + vals
 
 
 def _c(v: float) -> str:

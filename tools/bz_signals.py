@@ -72,6 +72,10 @@ def main(out_dir, neu=None, max_products="260"):
         time.sleep(0.65)
     print(f"{len(products)} products, {len(ok)} liquid, history for {len(series)} ({fails} failed) in {time.time() - t0:.0f}s")
 
+    # raw inputs, kept as a workflow artifact so the analysis can be re-run and checked offline
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    Path(out_dir, "raw_inputs.json").write_text(json.dumps(
+        {"series": series, "live": live, "recipes": recipes, "names": names}, separators=(",", ":")), encoding="utf-8")
     doc = analyse(series, live, STEP, recipes=recipes, names=names,
                   now_ms=int(time.time() * 1000), source="SkyCofl 7-day history (2h bars)")
     Path(out_dir).mkdir(parents=True, exist_ok=True)
