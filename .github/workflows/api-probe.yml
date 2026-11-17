@@ -1,0 +1,49 @@
+name: API probe (dev)
+
+# Prints the Fabric HUD / toast API signatures for each Minecraft version (used while writing compat code).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ["1.21.11", "26.3"]
+    defaults:
+      run:
+        working-directory: mod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Select Minecraft ${{ matrix.mc }}
+        if: matrix.mc != '1.21.11'
+        run: |
+          cp versions/build.gradle.26x build.gradle
+          grep -vE '^(minecraft_version|loader_version|loom_version|fabric_api_version|mc_range)=' gradle.properties > gp.tmp
+          cat versions/${{ matrix.mc }}/versions.properties >> gp.tmp
+          mv gp.tmp gradle.properties
+      - name: Resolve
+        run: chmod +x gradlew && ./gradlew compileJava --stacktrace -q || true
+      - name: Probe
+        run: |
+          set +e
+          for j in $(find ~/.gradle /home/runner/work -name "fabric-rendering-v1*.jar" 2>/dev/null | grep -v sources | head -3); do
+            echo "== $j"; unzip -l "$j" | grep -i -E "hud" | head -20
+            for c in $(unzip -l "$j" | grep -o -E "net/fabricmc/fabric/api/client/rendering/v1/hud/[A-Za-z]+\.class|net/fabricmc/fabric/api/client/rendering/v1/HudRenderCallback\.class"); do
+              javap -cp "$j" "${c%.class}" | head -30
+            done
+          done
+          mc=$(find ~/.gradle /home/runner/work .gradle -path "*minecraft*" -name "*.jar" 2>/dev/null | grep -i -E "merged|client" | grep -v -i sources | head -5)
+          echo "MC jars: $mc"
+          for j in $mc; do
+            for c in net.minecraft.client.gui.components.toasts.SystemToast 'net.minecraft.client.gui.components.toasts.SystemToast$SystemToastId' net.minecraft.client.gui.components.toasts.ToastManager net.minecraft.client.DeltaTracker net.minecraft.client.gui.GuiGraphicsExtractor; do
+              javap -cp "$j" "$c" 2>/dev/null | head -40
+            done
+          done
