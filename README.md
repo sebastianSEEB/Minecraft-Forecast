@@ -311,9 +311,10 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 - **Bazaar flips are live**: re-ranked on every bazaar update (every 20 s; `bazaarRefreshMinutes` > 0 brings back the
   snapshot), header shows "live Ns". Only products that **buy and sell fast** are listed: after competition both sides
   fill ≥ 10 units/h for you, the slower side is ≥ 1/5 of the faster, and a round fits `bazaarRoundHours`.
-- **Competition counts**: with N competing sell offers (buy orders) you catch at most 2 / (2 + N) of that side's flow
-  (6 offers → 25 %, 115 → 1.7 %), so crowded products size down and rank lower; the tooltip says when a product
-  "fills unevenly".
+- **Competition counts**: only orders within ~0.5 % of the best price fight you for the top (1.23.1+, from the bazaar's
+  order-book summary; orders far down the book only fill after yours). With N of them you catch at most 1 / (1 + N) of
+  that side's flow, never more than `bazaarSharePercent` (9 → 10 %, 30 → 3 %); the tooltip says when a product
+  "fills unevenly" and when a flip is **capped by your flip budget** (then a bigger budget % = more profit/h).
 - **Sliding prices count**: without a collector forecast, the 7-day trend of the instant-buy price (SkyCofl, regression of
   log price) moves your sell price by the time it sells when it's falling (rows show `trend −3%`). Rising isn't counted.
 - Products in a market event (ERP → Signals "!") stay out of the list.

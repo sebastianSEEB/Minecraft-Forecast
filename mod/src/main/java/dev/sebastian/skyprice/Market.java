@@ -169,17 +169,19 @@ final class Market {
 
 	/**
 	 * Full version used by the live flip list.
-	 * Competition: you only catch your share of the flow when few others sit on the same side; with N competing orders
-	 * (offers) your share is at most 2 / (2 + N) of it (6 offers → 25 %, 115 → 1.7 %), never above `share`.
+	 * Competition: only orders near the best price fight you for the top (outbid by 0.1, they outbid you back…). With N of
+	 * them on a side your share of that side's flow is at most 1 / (1 + N) (9 → 10 %, 30 → 3 %), never above `share`.
+	 * Orders far down the book don't compete: they only fill after yours.
 	 * Price move by the time it sells (fill + half the selling time): your collector's forecast when there is one,
 	 * else the product's 7-day slide (SkyCofl) when it's falling — a rising trend isn't counted.
-	 * @param offers        competing sell offers (quick_status sellOrders); 0 = unknown
+	 * @param orders        competing buy orders near the top (see DataClient.near); 0 = unknown
+	 * @param offers        competing sell offers near the top; 0 = unknown
 	 * @param slidePerHour  7-day trend of the instant-buy price, fraction per hour (−0.001 = −2.4 %/day)
 	 */
 	static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders, int offers,
 			double taxPct, double share, double budget, double roundHours, Forecasts.Side exitForecast, double slidePerHour) {
-		double buyShare = orders > 0 ? Math.min(share, 2.0 / (2 + orders)) : share;
-		double sellShare = offers > 0 ? Math.min(share, 2.0 / (2 + offers)) : share;
+		double buyShare = orders > 0 ? Math.min(share, 1.0 / (1 + orders)) : share;
+		double sellShare = offers > 0 ? Math.min(share, 1.0 / (1 + offers)) : share;
 		BzFlip now = core(id, instaBuy, instaSell, buyWeek, sellWeek, orders, offers, taxPct, buyShare, sellShare, budget, roundHours, 0, "");
 		if (now == null || now.qty() < 1) return now;
 		double t = now.fillHours() + now.sellHours() / 2;                    // average unit sells mid-way

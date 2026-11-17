@@ -213,8 +213,12 @@ final class HudFormatter {
 					+ " — keep it to the amount shown", YELLOW));
 		}
 		if (!cfg.simpleMode)
-			out.add(line(String.format(Locale.ROOT, "    for you: buys %s/h, sells %s/h (vs %d buy orders, %d sell offers on the book)",
+			out.add(line(String.format(Locale.ROOT, "    for you: buys %s/h, sells %s/h (%d buy orders, %d sell offers near the top)",
 					fmt(f.buyFillPerHour()), fmt(f.sellFillPerHour()), f.competition(), f.offers()), DARK));
+		double budget = cfg.budget(FcfPanel.purse());
+		if (f.qty() >= 1 && budget > 0 && f.cost() >= budget * 0.95)
+			out.add(line("    capped by your flip budget (" + fmt(budget) + ", " + (int) cfg.budgetPercent
+					+ "% of purse): more budget = more profit here. Change it with ⚙ in the FLIP panel.", DARK));
 	}
 
 	private static void history(List<Component> out, JsonObject stats, String side) {

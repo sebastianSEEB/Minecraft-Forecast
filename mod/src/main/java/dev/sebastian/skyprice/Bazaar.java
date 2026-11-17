@@ -104,7 +104,9 @@ final class Bazaar {
 		DataClient dc = data != null ? data : SkyPriceClient.data();
 		Forecasts.Side fc = cfg.forecastFlips && dc != null ? dc.forecast(id, "buy") : null;
 		double slide = cfg.forecastFlips && dc != null ? dc.bazaarSlide(id) : Double.NaN;
-		return Market.bazaarFlip(id, l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), l.orders(), l.offers(), cfg.bazaarTaxPercent,
+		int orders = l.nearOrders() >= 0 ? l.nearOrders() : l.orders() / 10;         // near-top competitors (book summary)
+		int offers = l.nearOffers() >= 0 ? l.nearOffers() : l.offers() / 10;
+		return Market.bazaarFlip(id, l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), orders, offers, cfg.bazaarTaxPercent,
 				cfg.bazaarSharePercent / 100.0, budget, Math.max(0.25, cfg.bazaarRoundHours), fc, Double.isNaN(slide) ? 0 : slide);
 	}
 

@@ -35,9 +35,18 @@ final class DataClient {
 	 * buyWeek / sellWeek = units instantly bought / sold in the last 7 days; offers / orders = how many sell offers /
 	 * buy orders are open (competition).
 	 */
-	record Live(double buy, double sell, long ts, double buyWeek, double sellWeek, int offers, int orders) {
+	/**
+	 * @param offers / orders          all sell offers / buy orders on the book
+	 * @param nearOffers / nearOrders  the ones within ~0.5 % of the best price: who actually fights you for the top
+	 *                                 (−1 = unknown)
+	 */
+	record Live(double buy, double sell, long ts, double buyWeek, double sellWeek, int offers, int orders, int nearOffers, int nearOrders) {
 		Live(double buy, double sell, long ts) {
-			this(buy, sell, ts, 0, 0, 0, 0);
+			this(buy, sell, ts, 0, 0, 0, 0, -1, -1);
+		}
+
+		Live(double buy, double sell, long ts, double buyWeek, double sellWeek, int offers, int orders) {
+			this(buy, sell, ts, buyWeek, sellWeek, offers, orders, -1, -1);
 		}
 	}
 
@@ -423,9 +432,30 @@ final class DataClient {
 		for (Map.Entry<String, JsonElement> e : products.entrySet()) {
 			JsonObject q = e.getValue().getAsJsonObject().getAsJsonObject("quick_status");
 			if (q == null) continue;
+			JsonObject pr = e.getValue().getAsJsonObject();
 			out.put(e.getKey(), new Live(q.get("buyPrice").getAsDouble(), q.get("sellPrice").getAsDouble(), ts,
-					d(q, "buyMovingWeek"), d(q, "sellMovingWeek"), (int) d(q, "buyOrders"), (int) d(q, "sellOrders")));
+					d(q, "buyMovingWeek"), d(q, "sellMovingWeek"), (int) d(q, "buyOrders"), (int) d(q, "sellOrders"),
+					near(pr.get("buy_summary"), false), near(pr.get("sell_summary"), true)));
 		}
 		return out;
+	}
+
+	/**
+	 * Pure: how many orders sit within 0.5 % (at least 0.2 coins) of the best price in an order-book summary.
+	 * buy_summary = sell offers (cheapest first), sell_summary = buy orders (highest first). −1 when missing.
+	 */
+	static int near(JsonElement summary, boolean highestFirst) {
+		if (summary == null || !summary.isJsonArray() || summary.getAsJsonArray().isEmpty()) return -1;
+		com.google.gson.JsonArray a = summary.getAsJsonArray();
+		double best = a.get(0).getAsJsonObject().get("pricePerUnit").getAsDouble();
+		double band = Math.max(best * 0.005, 0.2);
+		int n = 0;
+		for (JsonElement el : a) {
+			JsonObject o = el.getAsJsonObject();
+			double p = o.get("pricePerUnit").getAsDouble();
+			if (highestFirst ? p < best - band : p > best + band) break;
+			n += o.has("orders") ? o.get("orders").getAsInt() : 1;
+		}
+		return n;
 	}
 }
