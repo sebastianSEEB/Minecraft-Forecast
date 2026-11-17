@@ -128,6 +128,20 @@ def export_site(cfg: Config, db: Database, out_dir: str | Path | None = None, no
     (out / "data" / "forecasts.json").write_text(json.dumps(
         {"generated": now_ms, "horizons": [1, 6, 24], "items": fc_all}, separators=(",", ":")), encoding="utf-8")
 
+    # bazaar misprices / correlations from the collector's hourly bars (ERP → Signals); without 24 h of data
+    # the GitHub job's SkyCofl-based file is kept instead (see push below)
+    from .bzsignals import from_db
+    sig_file = out / "data" / "bz_signals.json"
+    try:
+        sig = from_db(c, cfg, now_ms)
+    except Exception as e:  # noqa: BLE001
+        log.warning("bazaar signals failed: %s", e)
+        sig = None
+    if sig:
+        sig_file.write_text(json.dumps(sig, separators=(",", ":")), encoding="utf-8")
+    elif sig_file.exists():
+        sig_file.unlink()
+
     from .valuation import components_doc
     (out / "data" / "components.json").write_text(json.dumps(components_doc(c), separators=(",", ":")), encoding="utf-8")
     deals = [dict(r) for r in c.execute("SELECT * FROM deals ORDER BY profit DESC LIMIT 200")]
@@ -173,7 +187,10 @@ def push_site(cfg: Config, site: Path | None = None) -> None:
     _git(site, "config", "user.email", cfg.publish_git_email)
     # keep the files the 15-min GitHub AH job maintains (your positions + bazaar price history)
     if _git(site, "fetch", "-q", "--depth", "1", "origin", "gh-pages", check=False).returncode == 0:
-        for f in ("data/positions.json", "data/bazaar_watch.json", "data/craft_flips.json"):
+        keep = ["data/positions.json", "data/bazaar_watch.json", "data/craft_flips.json"]
+        if not (site / "data" / "bz_signals.json").exists():      # no collector signals yet: keep the GitHub job's
+            keep.append("data/bz_signals.json")
+        for f in keep:
             _git(site, "checkout", "FETCH_HEAD", "--", f, check=False)
     _git(site, "add", "-A")
     has_commit = _git(site, "rev-parse", "--verify", "HEAD", check=False).returncode == 0

@@ -3,6 +3,7 @@
   GET /itemdata/<KEY>   full item document (same format as data/items/<KEY>.json) — used by the mod
   GET /hud/<KEY>        tooltip lines (used by the lookup page)
   GET /item/<KEY>       full stats + forecast JSON
+  GET /signals           bazaar misprices, correlations and suggestions (ERP → Signals)
   GET /forecasts         every item's 1h/6h/24h forecast (compact; the mod's flip lists use it)
   GET /history/<SERIES>?hours=168   hourly bars (series: bz:<ID>:buy, ah:<KEY>, lbin:<KEY>)
   GET /lbin?keys=A,B    fresh lowest BIN for a few items (re-checked every 30 s) — the mod's watch list
@@ -139,6 +140,11 @@ def make_handler(cfg: Config, db: Database):
                     rows = conn().execute("SELECT hour, avg, median, high, low, n, volume FROM hourly WHERE series=? AND hour>? ORDER BY hour",
                                           (parts[1], now_h - hours)).fetchall()
                     return self._send(200, [dict(r) | {"ts": r["hour"] * HOUR_MS} for r in rows])
+                if parts[0] == "signals":
+                    f = Path(cfg.db_path).parent / "site" / "data" / "bz_signals.json"
+                    if not f.exists():
+                        return self._send(404, {"error": "no bazaar signals yet (needs 24 h of collector data)"})
+                    return self._send(200, json.loads(f.read_text(encoding="utf-8")))
                 if parts[0] == "forecasts":
                     # written by the publish job (every publish_interval), same file as data/forecasts.json
                     f = Path(cfg.db_path).parent / "site" / "data" / "forecasts.json"
