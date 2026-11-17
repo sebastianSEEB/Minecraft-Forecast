@@ -292,6 +292,25 @@ public final class SkyPriceClient implements ClientModInitializer {
 									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] AH flip feed off."));
 									return 1;
 								})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("signals").executes(ctx -> {
+							JsonObject sj = data.bzSignals();
+							if (sj == null || !sj.has("signals")) {
+								ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Bazaar signals are loading, try again in a few seconds."));
+								return 1;
+							}
+							ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Bazaar signals (" + sj.getAsJsonArray("signals").size()
+									+ "), best first. Full list + charts: ERP → Signals."));
+							int n = 0;
+							for (var e : sj.getAsJsonArray("signals")) {
+								if (n++ >= 6) break;
+								JsonObject o = e.getAsJsonObject();
+								ctx.getSource().sendFeedback(HudFormatter.line(" " + n + ". ", HudFormatter.GRAY, HudFormatter.str(o, "title"), HudFormatter.WHITE,
+										String.format(java.util.Locale.ROOT, " %+.1f%% · %s", o.get("edge").getAsDouble() * 100, HudFormatter.str(o, "conf")),
+										"high".equals(HudFormatter.str(o, "conf")) ? HudFormatter.GREEN : HudFormatter.YELLOW));
+								ctx.getSource().sendFeedback(HudFormatter.line("    " + HudFormatter.str(o, "text"), HudFormatter.GRAY));
+							}
+							return 1;
+						}))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("forecast").executes(ctx -> {
 									int n = data.forecasts().size();
 									long gen = data.forecastsGenerated();

@@ -16,7 +16,8 @@ import java.util.Map;
  * With forecasting on, the sell offer's price is moved by your collector's forecast for the time it sells (see
  * {@link Forecasts}), so a product that's about to drop ranks lower and one that's rising (beyond normal error) higher.
  *
- * Skipped: margins under 2 % or over 100 % (thin or manipulated), fewer than 10 units traded per hour, products
+ * Skipped: products in a current market event (≥ 6 products crashing / pumping together, see market/bzsignals.py),
+ * margins under 2 % or over 100 % (thin or manipulated), fewer than 10 units traded per hour, products
  * whose buy order alone costs more than your budget. Also turns a display name ("Enchanted Diamond") back into the
  * product id for the Bazaar menus and your orders.
  */
@@ -48,7 +49,9 @@ final class Bazaar {
 		if (!ranked.isEmpty() && !budgetMoved && now - rankedAt < Math.max(1, cfg.bazaarRefreshMinutes) * 60_000L) return ranked;
 		if (all.isEmpty()) return ranked;
 		List<Market.BzFlip> out = new ArrayList<>();
+		java.util.Set<String> event = eventMembers(data.bzSignals());
 		for (Map.Entry<String, DataClient.Live> e : all.entrySet()) {
+			if (event.contains(e.getKey())) continue;             // part of a market event (crash / pump): old spreads are no guide
 			DataClient.Live l = e.getValue();
 			Market.BzFlip f = flip(cfg, e.getKey(), l, budget);
 			if (f == null || f.perUnit() <= 0 || f.pct() < 0.02 || f.pct() > cfg.bazaarMaxSpreadPercent / 100.0) continue;
@@ -63,6 +66,18 @@ final class Bazaar {
 		rankedAt = now;
 		rankedBudget = budget;
 		return ranked;
+	}
+
+	/** Products in a current market event (ERP → Signals, "!"): kept out of the flip list until it settles. */
+	static java.util.Set<String> eventMembers(com.google.gson.JsonObject sj) {
+		java.util.Set<String> out = new java.util.HashSet<>();
+		if (sj == null || !sj.has("signals")) return out;
+		for (com.google.gson.JsonElement e : sj.getAsJsonArray("signals")) {
+			com.google.gson.JsonObject o = e.getAsJsonObject();
+			if (!"event".equals(HudFormatter.str(o, "type")) || !o.has("members")) continue;
+			for (com.google.gson.JsonElement m : o.getAsJsonArray("members")) out.add(m.getAsString());
+		}
+		return out;
 	}
 
 	private static volatile Map<String, Integer> ranks = Map.of();

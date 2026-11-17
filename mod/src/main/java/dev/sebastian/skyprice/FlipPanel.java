@@ -385,6 +385,14 @@ final class FlipPanel {
 		}
 	}
 
+	/** Start the Bazaar click flow (open / copy name → amount → price) for any product, e.g. from ERP → Signals. */
+	static void pick(String id, String name) {
+		DataClient.Live live = data.live(id);
+		Market.BzFlip f = live == null ? null : Bazaar.flip(cfg, id, live, budget());
+		if (f == null) f = new Market.BzFlip(id, live == null ? 0 : live.sell() + 0.1, live == null ? 0 : live.buy() - 0.1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0);
+		copyBazaar(f, name);
+	}
+
 	private static int craft(Highlight.Painter p, int x, int y, int w, int bottom) {
 		JsonObject cj = data.craftFlips();
 		section(p, x, y, w, "Craft flips", cj == null ? "" : "updated " + Math.max(0, (System.currentTimeMillis()

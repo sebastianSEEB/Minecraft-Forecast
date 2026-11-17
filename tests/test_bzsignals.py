@@ -73,9 +73,9 @@ def test_uncorrelated_products_make_no_pairs_and_no_signals():
 
 def test_pair_laggard():
     a = [m * 100 for m in walk(3, vol=0.02)]
-    b = [x * 2 * math.exp(random.Random(i).gauss(0, 0.003)) for i, x in enumerate(a)]
+    b = [x * 2 * math.exp(random.Random(i).gauss(0, 0.015)) for i, x in enumerate(a)]
     series = {"A": pts(a), "B": pts(b)}
-    live = {"A": live_of(a[-1] * 0.9), "B": live_of(b[-1])}      # A lags its twin by 10 %
+    live = {"A": live_of(a[-1] * 0.92), "B": live_of(b[-1])}     # A lags its twin by 8 %
     out = analyse(series, live, STEP)
     pair = [s for s in out["signals"] if s["type"] == "pair"]
     assert pair and pair[0]["id"] == "A" and pair[0]["other"] == "B", out["signals"]
@@ -110,6 +110,17 @@ def test_craft_ratio():
     out = analyse(series, live, STEP, recipes=recipes)
     craft = [s for s in out["signals"] if s["type"] == "craft"]
     assert craft and craft[0]["edge"] > 0.06, out["signals"]
+
+
+def test_market_wide_crash_is_one_event():
+    """Many products crashing together (a game update) = one event, not a list of 'cheap' buys."""
+    mids = {f"F{i}": [m * 100 for m in walk(200 + i)] for i in range(8)}
+    series = {k: pts(v) for k, v in mids.items()}
+    live = {k: live_of(v[-1] * (0.5 + 0.03 * i)) for i, (k, v) in enumerate(mids.items())}
+    out = analyse(series, live, STEP)
+    ev = [s for s in out["signals"] if s["type"] == "event"]
+    assert len(ev) == 1 and ev[0]["action"] == "avoid" and "8 products" in ev[0]["why"][0], out["signals"]
+    assert not [s for s in out["signals"] if s["type"] == "cheap"], out["signals"]
 
 
 def test_thin_products_are_skipped():

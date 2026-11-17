@@ -28,6 +28,8 @@ import net.minecraft.client.gui.screens.Screen;
  *   Coach              live warnings (overpriced listings, outbid, ending soon, too much tied up)
  *   Messages           outbid notifications from chat
  *   Bazaar             your selected bazaar products (default: Stock of Stonks + candy) with live prices and a 7-day chart
+ *   Signals            bazaar misprices (vs the product's own volatility and its correlated peers), correlated pairs,
+ *                      lead–lag links and compression-recipe ratios, turned into suggestions sized to your purse
  *
  * Clicks inside ERP never reach the inventory. Clicking an auction row opens it with /viewauction; you act yourself.
  */
@@ -255,7 +257,7 @@ final class Erp {
 
 	// ================================================================== top bar
 	private static void topbar(Highlight.Painter p, int x, int w, List<JsonObject> pos) {
-		String[][] items = {{"bazaar", "Bazaar"}, {"cashflow", "Cash flow"}, {"sales", "Sales"}, {"collect", "Collect"},
+		String[][] items = {{"signals", "Signals"}, {"bazaar", "Bazaar"}, {"cashflow", "Cash flow"}, {"sales", "Sales"}, {"collect", "Collect"},
 				{"messages", "Mail"}, {"coach", "Coach"}, {"bi", "BI"}, {"inventory", "Inventory"}};
 		int total = 0;
 		for (String[] it : items) total += w(it[1]) + 10;
@@ -272,7 +274,8 @@ final class Erp {
 			boolean sel = win.equals(it[0]);
 			if (sel) p.fill(cx - 2, 2, cx + tw + 4, 16, 0x40FFFFFF);
 			p.text(it[1], cx + 1, 5, 0xFFFFFFFF);
-			int badge = it[0].equals("collect") ? collect : it[0].equals("coach") ? coachBad : it[0].equals("messages") ? mail : 0;
+			int badge = it[0].equals("collect") ? collect : it[0].equals("coach") ? coachBad : it[0].equals("messages") ? mail
+					: it[0].equals("signals") ? strongSignals() : 0;
 			if (badge > 0) {
 				String b = String.valueOf(badge);
 				p.fill(cx + tw - 1, 0, cx + tw + w(b) + 3, 8, BLUE);
@@ -289,7 +292,7 @@ final class Erp {
 	// ================================================================== window frame
 	private static final String[][] TITLES = {{"inventory", "Inventory"}, {"purchases", "Purchases"}, {"sales", "Sales offers"},
 			{"events", "Forthcoming events"}, {"collect", "Deliver / collect auctions"}, {"cashflow", "Investments & Funding"},
-			{"bi", "Business Intelligence"}, {"coach", "Coach"}, {"messages", "Messages"}, {"bazaar", "Bazaar prices"}};
+			{"bi", "Business Intelligence"}, {"coach", "Coach"}, {"messages", "Messages"}, {"bazaar", "Bazaar prices"}, {"signals", "Bazaar signals: misprices & correlations"}};
 
 	private static void window(Highlight.Painter p, int x, int y, int w, int h, JsonObject f, JsonObject n, List<JsonObject> pos) {
 		String title = win;
@@ -318,9 +321,10 @@ final class Erp {
 			case "coach" -> coachWin(p, bx, by, bw, bh, n, pos);
 			case "messages" -> messages(p, bx, by, bw, bh);
 			case "bazaar" -> bazaar(p, bx, by, bw, bh);
+			case "signals" -> signals(p, bx, by, bw, bh);
 			default -> inventory(p, bx, by, bw, bh, pos, n);
 		}
-		if (n == null && !win.equals("bazaar") && !win.equals("messages")) {
+		if (n == null && !win.equals("bazaar") && !win.equals("messages") && !win.equals("signals") && !win.equals("coach")) {
 			p.text(FcfPanel.report() == null ? "Loading your auctions…" : "No auctions found yet (the AH is scanned every 15 min).", bx, by + 30, MUTED);
 		}
 	}
@@ -682,6 +686,12 @@ final class Erp {
 	// ---------------------------------------------------------------- coach
 	private static List<String[]> coach(JsonObject n, List<JsonObject> pos) {
 		List<String[]> m = new ArrayList<>();
+		int tips = 0;
+		for (JsonObject sg : signalList("all")) {                  // the strongest bazaar suggestions (ERP → Signals)
+			if (tips >= 2 || !"high".equals(str(sg, "conf"))) continue;
+			m.add(new String[]{"good", "Bazaar: " + str(sg, "title"), str(sg, "text")});
+			tips++;
+		}
 		if (n == null) return m;
 		for (JsonObject o : pos) {
 			if (sale(o) && o.has("overpriced") && o.get("overpriced").getAsBoolean())
@@ -736,6 +746,235 @@ final class Erp {
 			btn(x, ry - 1, x + w, ry + 20, () -> Chat.command("viewauction " + uuid));
 			ry += 24;
 		}
+	}
+
+	// ---------------------------------------------------------------- bazaar signals (misprices, correlations)
+	private static String sigView = "suggest", sigFilter = "all", sigSelId;
+
+	private static List<JsonObject> signalList(String filter) {
+		List<JsonObject> out = new ArrayList<>();
+		JsonObject sj = data == null ? null : data.bzSignals();
+		if (sj == null || !sj.has("signals")) return out;
+		for (JsonElement e : sj.getAsJsonArray("signals")) {
+			JsonObject o = e.getAsJsonObject();
+			String a = str(o, "action");
+			boolean keep = switch (filter) {
+				case "buy" -> "buy".equals(a) || "prefer".equals(a);
+				case "sell" -> "sell".equals(a) || "avoid".equals(a);
+				case "craft" -> "craft".equals(a) || "premium".equals(str(o, "type"));
+				default -> true;
+			};
+			if (keep) out.add(o);
+		}
+		return out;
+	}
+
+	private static int strongSignals() {
+		return (int) signalList("all").stream().filter(o -> "high".equals(str(o, "conf"))).count();
+	}
+
+	private static int chip(Highlight.Painter p, int x, int y, String label, boolean sel, Runnable r) {
+		int cw = w(label) + 8;
+		p.fill(x, y - 2, x + cw, y + 9, sel ? 0xFFFFDCCB : 0xFFF3F3F3);
+		p.text(label, x + 4, y, sel ? ORANGE : INK);
+		btn(x, y - 2, x + cw, y + 9, r);
+		return x + cw + 3;
+	}
+
+	private static final String[][] SIG_TYPES = {
+			{"cheap", "B"}, {"rich", "S"}, {"pair", "P"}, {"follow", "F"}, {"craft", "C"}, {"premium", "$"}, {"event", "!"}};
+
+	private static String letter(String type) {
+		for (String[] t : SIG_TYPES) if (t[0].equals(type)) return t[1];
+		return "?";
+	}
+
+	private static int typeColor(String type) {
+		return switch (type == null ? "" : type) {
+			case "cheap" -> GREEN;
+			case "rich" -> RED;
+			case "pair" -> BLUE;
+			case "follow" -> LILAC;
+			case "craft" -> ORANGE;
+			case "event" -> 0xFF9B2335;
+			default -> 0xFFB8960C;
+		};
+	}
+
+	private static int confColor(String c) {
+		return "high".equals(c) ? GREEN : "medium".equals(c) ? 0xFFB8960C : MUTED;
+	}
+
+	private static void signals(Highlight.Painter p, int x, int y, int w, int h) {
+		JsonObject sj = data.bzSignals();
+		int cx = chip(p, x, y, "Suggestions", sigView.equals("suggest"), () -> { sigView = "suggest"; page = 0; });
+		cx = chip(p, cx, y, "Correlations", sigView.equals("corr"), () -> { sigView = "corr"; page = 0; });
+		cx += 10;
+		if (sigView.equals("suggest")) {
+			for (String[] f : new String[][]{{"all", "All"}, {"buy", "Buy"}, {"sell", "Sell"}, {"craft", "Craft"}}) {
+				final String id = f[0];
+				cx = chip(p, cx, y, f[1], sigFilter.equals(id), () -> { sigFilter = id; page = 0; });
+			}
+		}
+		if (sj == null) {
+			p.text("Loading bazaar signals… (published every 2 h; your collector's own after 24 h of data)", x, y + 18, MUTED);
+			return;
+		}
+		long age = (System.currentTimeMillis() - (long) d(sj, "generated")) / 60000;
+		String src = (age < 120 ? age + "m" : (age / 60) + "h") + " ago · " + (int) d(sj, "products") + " products · "
+				+ (int) d(sj, "pairs") + " pairs";
+		p.text(src, x + w - w(src), y, MUTED);
+		int ty = y + 14;
+		if (sigView.equals("corr")) {
+			correlations(p, x, ty, w, h - 14, sj);
+			return;
+		}
+		List<JsonObject> list = signalList(sigFilter);
+		JsonObject sel = null;
+		for (JsonObject o : list) if (str(o, "id").equals(sigSelId)) sel = o;
+		if (sel == null && !list.isEmpty()) {
+			sel = list.get(0);
+			sigSelId = str(sel, "id");
+		}
+		int tableH = Math.max(60, (int) (h * 0.48));
+		List<Row> rows = new ArrayList<>();
+		for (JsonObject o : list) {
+			String id = str(o, "id"), conf = str(o, "conf"), type = str(o, "type");
+			double edge = d(o, "edge");
+			boolean isSel = id.equals(sigSelId);
+			rows.add(new Row(new String[]{str(o, "name"), str(o, "action"), fmt(d(o, "price")), fmt(d(o, "target")),
+					String.format(Locale.ROOT, "%+.1f%%", edge * 100), conf},
+					new int[]{isSel ? ORANGE : 0, 0, 0, 0, edge >= 0 ? GREEN : RED, confColor(conf)},
+					letter(type), typeColor(type), () -> sigSelId = id));
+		}
+		table(p, x, ty, w, tableH, new Col[]{new Col("Product", 0.36, false), new Col("Do", 0.10, false), new Col("Now", 0.13, true),
+				new Col("Target", 0.13, true), new Col("Edge", 0.13, true), new Col("Conf.", 0.15, true)}, rows,
+				"B cheap · S rich · P pair · F follows · C craft · $ cheaper form · ! market event");
+		if (sel != null) signalDetail(p, x, ty + tableH + 4, w, h - tableH - 18, sel, sj);
+	}
+
+	/** Explanation, purse-sized quantity, buttons and a 7-day chart (both products of a pair, indexed to the start). */
+	private static void signalDetail(Highlight.Painter p, int x, int y, int w, int h, JsonObject o, JsonObject sj) {
+		p.fill(x, y - 2, x + w, y - 1, LINE);
+		String id = str(o, "id"), name = str(o, "name"), other = str(o, "other"), action = str(o, "action");
+		p.text(FcfPanel.fit(str(o, "title"), w), x, y + 1, INK);
+		p.text(FcfPanel.fit(str(o, "text"), w), x, y + 11, typeColor(str(o, "type")));
+		int ly = y + 22;
+		if (o.has("why")) for (JsonElement e : o.getAsJsonArray("why")) {
+			p.text(FcfPanel.fit("• " + e.getAsString(), w), x, ly, MUTED);
+			ly += 10;
+		}
+		double price = d(o, "price"), edge = d(o, "edge");
+		double budget = FlipPanel.budget();
+		double perRound = d(o, "units_h") * cfg.bazaarSharePercent / 100.0 * Math.max(0.25, cfg.bazaarRoundHours);
+		long qty = (long) Math.max(0, Math.min(Math.min(perRound, price > 0 ? budget / price : 0), Market.MAX_ORDER));
+		String size;
+		if ("event".equals(str(o, "type"))) size = "Market event: these prices just changed for a reason. Flip lists ignore the members until it settles.";
+		else if ("sell".equals(action)) size = "For what you hold: about " + fmt(price * edge) + " more per unit than its usual price.";
+		else if ("prefer".equals(action)) size = "Use this one when you need the item; no flip margin after tax.";
+		else size = qty < 1 ? "Your flip budget is below one unit." : String.format(Locale.ROOT, "Size: %,d units (%s of your %s flip budget) → ≈ +%s if it gets back to target",
+				qty, fmt(qty * price), fmt(budget), fmt(qty * price * edge));
+		p.text(FcfPanel.fit(size, w), x, ly + 1, INK);
+		ly += 13;
+		int bx = x;
+		String b1 = "Open " + name + " in Bazaar";
+		p.fill(bx, ly - 2, bx + w(b1) + 8, ly + 9, ORANGE);
+		p.text(b1, bx + 4, ly, 0xFFFFFFFF);
+		btn(bx, ly - 2, bx + w(b1) + 8, ly + 9, () -> { on = false; FlipPanel.pick(id, name); });
+		bx += w(b1) + 12;
+		boolean watched = bazaarList().contains(id);
+		String b2 = watched ? "✔ Watching" : "+ Watch";
+		p.fill(bx, ly - 2, bx + w(b2) + 8, ly + 9, 0xFFF3F3F3);
+		p.text(b2, bx + 4, ly, INK);
+		btn(bx, ly - 2, bx + w(b2) + 8, ly + 9, () -> {
+			if (!bazaarList().contains(id)) {
+				List<String> l = bazaarList();
+				l.add(id);
+				cfg.bazaarWatch = l;
+				cfg.save();
+			}
+		});
+		bx += w(b2) + 12;
+		if (other != null) {
+			String on2 = HudFormatter.str(HudFormatter.obj(sj, "names"), other);
+			String b3 = "Open " + (on2 == null ? pretty(other) : on2);
+			p.fill(bx, ly - 2, bx + w(b3) + 8, ly + 9, 0xFFF3F3F3);
+			p.text(b3, bx + 4, ly, INK);
+			final String oname = on2 == null ? pretty(other) : on2;
+			btn(bx, ly - 2, bx + w(b3) + 8, ly + 9, () -> { on = false; FlipPanel.pick(other, oname); });
+		}
+		ly += 14;
+		sparkChart(p, x, ly, w, y + h - ly, sj, id, other);
+	}
+
+	private static void sparkChart(Highlight.Painter p, int x, int y, int w, int h, JsonObject sj, String a, String b) {
+		if (h < 34) return;
+		JsonObject sp = HudFormatter.obj(sj, "spark");
+		List<long[]> la = spark(sp, a), lb = b == null ? List.of() : spark(sp, b);
+		if (la.isEmpty()) return;
+		long from = Long.MAX_VALUE, to = Long.MIN_VALUE, lo = Long.MAX_VALUE, hi = Long.MIN_VALUE;
+		for (List<long[]> l : List.of(la, lb)) for (long[] q : l) {
+			from = Math.min(from, q[0]); to = Math.max(to, q[0]); lo = Math.min(lo, q[1]); hi = Math.max(hi, q[1]);
+		}
+		long pad = Math.max(1, (hi - lo) / 10);
+		lo -= pad;
+		hi += pad;
+		int gx = x + 34, gy = y + 10, gw = w - 38, gh = h - 20;
+		p.fill(gx, gy + gh - (int) ((10000.0 - lo) / (hi - lo) * gh), gx + gw, gy + gh - (int) ((10000.0 - lo) / (hi - lo) * gh) + 1, 0xFFDDDDDD);
+		for (int k = 0; k <= 2; k++) {
+			long v = lo + (hi - lo) * k / 2;
+			int yy = gy + gh - (int) ((double) (v - lo) / (hi - lo) * gh);
+			String t = String.format(Locale.ROOT, "%+.0f%%", (v / 10000.0 - 1) * 100);
+			p.text(t, gx - 3 - w(t), yy - 4, MUTED);
+		}
+		JsonObject names = HudFormatter.obj(sj, "names");
+		String na = HudFormatter.str(names, a), nb = b == null ? null : HudFormatter.str(names, b);
+		p.fill(x, y + 3, x + 12, y + 5, ORANGE);
+		p.text((na == null ? pretty(a) : na) + " (price vs 7 days ago)", x + 15, y, INK);
+		if (nb != null || b != null) {
+			int lx = x + 20 + w((na == null ? pretty(a) : na) + " (price vs 7 days ago)") + 8;
+			p.fill(lx, y + 3, lx + 12, y + 5, BLUE);
+			p.text(nb == null ? pretty(b) : nb, lx + 15, y, INK);
+		}
+		FcfPanel.line(p, lb, from, to, lo, hi, gx, gy, gw, gh, BLUE);
+		FcfPanel.line(p, la, from, to, lo, hi, gx, gy, gw, gh, ORANGE);
+	}
+
+	/** Spark series indexed to 10 000 at its first value (so two products share one % axis). */
+	private static List<long[]> spark(JsonObject sp, String id) {
+		List<long[]> out = new ArrayList<>();
+		if (sp == null || id == null || !sp.has(id) || !sp.get(id).isJsonArray()) return out;
+		JsonArray a = sp.getAsJsonArray(id);
+		if (a.size() < 3) return out;
+		long t0 = a.get(0).getAsLong(), step = a.get(1).getAsLong();
+		double first = Double.NaN;
+		for (int i = 2; i < a.size(); i++) {
+			if (a.get(i).isJsonNull()) continue;
+			double v = a.get(i).getAsDouble();
+			if (Double.isNaN(first)) first = v;
+			if (first > 0) out.add(new long[]{t0 + (i - 2) * step, Math.round(v / first * 10000)});
+		}
+		return out;
+	}
+
+	private static void correlations(Highlight.Painter p, int x, int y, int w, int h, JsonObject sj) {
+		JsonObject names = HudFormatter.obj(sj, "names");
+		List<Row> rows = new ArrayList<>();
+		if (sj.has("correlations")) for (JsonElement e : sj.getAsJsonArray("correlations")) {
+			JsonObject c = e.getAsJsonObject();
+			String a = str(c, "a"), b = str(c, "b");
+			String na = names != null && names.has(a) ? names.get(a).getAsString() : pretty(a);
+			String nb = names != null && names.has(b) ? names.get(b).getAsString() : pretty(b);
+			boolean lag = d(c, "lag") > 0;
+			double hrs = d(sj, "step_h");
+			rows.add(new Row(new String[]{na, nb, String.format(Locale.ROOT, "%.2f", d(c, "rho")),
+					lag ? nb + " follows ~" + Market.dur(hrs) + " later" : "move together", String.valueOf((int) d(c, "n"))},
+					new int[]{0, 0, d(c, "rho") >= 0.8 ? GREEN : 0, lag ? LILAC : MUTED, MUTED}, lag ? "F" : "≈", lag ? LILAC : BLUE,
+					() -> { sigView = "suggest"; sigFilter = "all"; sigSelId = a; page = 0; }));
+		}
+		table(p, x, y, w, h, new Col[]{new Col("Product", 0.28, false), new Col("With", 0.28, false), new Col("ρ", 0.08, true),
+				new Col("How", 0.26, false), new Col("Bars", 0.10, true)}, rows,
+				"ρ = correlation of price changes (1 = always together). Correlation ≠ cause: use it as a lead.");
 	}
 
 	// ---------------------------------------------------------------- bazaar (stocks, candy, …)

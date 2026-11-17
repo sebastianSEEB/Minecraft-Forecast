@@ -180,6 +180,11 @@ final class HudFormatter {
 					fmt(live.buy() - 0.1), GREEN, " → " + fmt((live.buy() - 0.1) * (1 - tax)) + " each after tax", GRAY));
 			return;
 		}
+		DataClient dc = SkyPriceClient.data();
+		if (dc != null && Bazaar.eventMembers(dc.bzSignals()).contains(str(d, "k"))) {
+			out.add(line(" ⚠ part of a market event right now (many related products moved together): don't flip it until it settles."
+					+ " ERP → Signals shows the event.", YELLOW));
+		}
 		Market.BzFlip f = Bazaar.flip(cfg, str(d, "k"), live, cfg.budget(FcfPanel.purse()));
 		if (f == null) return;
 		if (f.pct() > cfg.bazaarMaxSpreadPercent / 100.0) {           // a gap this wide is a thin / manipulated market

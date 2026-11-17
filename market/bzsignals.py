@@ -15,18 +15,22 @@ What it looks for
    group moved it's probably news (a mayor, an event), so low confidence. A drift the same way
    before the move (mean return t ≥ 2 over 24 bars, vs peers when it has them) lowers it too. A cheap product is only a BUY when the round trip pays after the 1.25 % tax: buy
    order now, sell offer back at the price before the drop (moved by what the peers did).
-2. Correlations: Pearson ρ of 1-bar log returns (clipped at ±30 % so one manipulation spike can't
-   make a pair). ρ ≥ 0.6 on ≥ 24 shared bars = the two usually move together.
+2. Correlations: Spearman (rank) ρ of 1-bar log returns, so a few shared spikes or a data glitch on
+   the same bars can't make a pair. ρ ≥ 0.5 on ≥ 24 shared bars (p < 0.0001 at a week of 2 h bars) = they usually move together.
    Peers tell market-wide moves from one-product moves: if a product's correlated peers dropped
    just as much, the "dip" is the whole group (a mayor, an event) and is less likely to bounce.
-3. Pair misprice: for a correlated pair the spread log A − β·log B (β = return regression slope)
+3. Pair misprice: for a correlated pair the spread log A − β·log B (β from regressing the log price levels)
    normally hovers around its median; |z| ≥ 2 and ≥ 4 % apart → the laggard is cheap/rich vs its twin.
    Only when the spread mean-reverts: AR(1) φ of the spread < 1 with a half-life ≤ 48 h.
    "High" confidence for a cheap/rich product also needs proof that its own sudden moves usually
    bounce (≥ 3 past ones, ≥ 60 % at least one-third undone within 3 bars).
 4. Lead–lag ("follow"): ρ(A now, B one bar later) ≥ 0.5 and stronger than the same-bar ρ means B
    tends to follow A. When A just made a ≥ 2.5 σ move and B hasn't, B is expected to follow.
-5. Recipe ratio ("craft" / "premium"): an enchanted product made from k units of another bazaar
+   Lead–lag is only used when the history is fresh (the leader's move must be the latest bar).
+5. Group events ("event"): ≥ 3 correlated products that all moved ≥ 15 % the same way at once = news
+   (an update, a mayor). They're reported as one event and kept out of the cheap/pair lists, because
+   the old prices are no guide. A pair spread beyond 8σ is treated the same way (relationship broke).
+6. Recipe ratio ("craft" / "premium"): an enchanted product made from k units of another bazaar
    product. Crafting margin = sell offer for it after tax ÷ k buy orders − 1. Flagged when the margin
    is ≥ 3 % and unusually high for that pair, or ≥ 6 % outright; when the enchanted form is unusually
    cheap vs k raw, buying it instead of crafting is the tip.
@@ -52,11 +56,15 @@ MAX_SPREAD = 0.60               # wider than this = thin / manipulated, skipped
 Z_SELF = 2.5
 MIN_MOVE = 0.04
 MIN_EDGE = 0.03
-RHO_PAIR = 0.6
+RHO_PAIR = 0.5
 RHO_LEAD = 0.5
 Z_PAIR = 2.0
 MIN_BARS = 24
 CLIP = 0.30
+Z_BREAK = 8.0                   # a pair spread this far out = the relationship broke (news), not a trade
+BIG_MOVE = 0.15                 # log move that counts as "big" for group events
+MARKET_EVENT = 6                # this many big movers the same way at once = market-wide event
+NEWS_MOVE = 0.30                # a single product moving this much is more likely news than a mispricing
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -86,6 +94,25 @@ def _pearson(a: list[float], b: list[float]) -> Optional[float]:
     if saa <= 0 or sbb <= 0:
         return None
     return sab / math.sqrt(saa * sbb)
+
+
+def _ranks(xs: list[float]) -> list[float]:
+    order = sorted(range(len(xs)), key=lambda i: xs[i])
+    r = [0.0] * len(xs)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and xs[order[j + 1]] == xs[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            r[order[k]] = (i + j) / 2
+        i = j + 1
+    return r
+
+
+def _spearman(a: list[float], b: list[float]) -> Optional[float]:
+    """Rank correlation: a few shared spikes (or a data glitch on the same bars) can't make two products a pair."""
+    return _pearson(_ranks(a), _ranks(b))
 
 
 def _slope(y: list[float], x: list[float]) -> float:
@@ -148,7 +175,12 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
     """series: {pid: [(ts_ms, instant_buy, instant_sell), ...]}; live: {pid: {buy, sell, buy_week, sell_week}}.
     recipes: {output: (ingredient, count)} for single-ingredient bazaar recipes (compression)."""
     names = names or {}
-    nm = lambda p: names.get(p) or pretty(p)  # noqa: E731
+
+    def nm(p: str) -> str:
+        n = names.get(p)
+        if not n or p.startswith("ENCHANTMENT_") or n.strip().lower() == "enchanted book":
+            return pretty(p.replace("ENCHANTMENT_", "", 1)) if p.startswith("ENCHANTMENT_") else pretty(p)
+        return "".join(ch for ch in n if ord(ch) < 0xE000 or ord(ch) > 0xF8FF).strip()
     G = grid(series, step_ms)
     ok = liquid(live)
     pids = sorted(p for p in G if p in ok and len(G[p]) >= MIN_BARS)
@@ -171,7 +203,9 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
         l = live[p]
         now_log = math.log(_mid(l["buy"], l["sell"]))
         sig_r = max(_robust(list(R[p].values()))[1] if len(R[p]) >= 8 else 0.0, 0.005)
-        h = recent + ref_len / 2
+        # bars between the middle of the reference window and now (the history can lag the live price by hours)
+        ref_mid = (ref_keys[0] + ref_keys[-1]) / 2 + 0.5
+        h = max(recent + ref_len / 2, now_ms / step_ms - ref_mid)
         move = now_log - ref
         week_med = median([g[k][0] for k in keys])
         self_dev[p] = {"move": move, "z": move / (sig_r * math.sqrt(h)), "sig_r": sig_r, "h": h,
@@ -189,7 +223,7 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
             common = [k for k in ra if k in rb]
             if len(common) >= MIN_BARS:
                 x, y = [ra[k] for k in common], [rb[k] for k in common]
-                rho = _pearson(x, y)
+                rho = _spearman(x, y)
                 if rho is not None and rho >= RHO_PAIR:
                     corr.append({"a": a, "b": b, "rho": rho, "lag": 0, "beta": _slope(x, y), "n": len(common)})
                     peers[a].append((rho, b))
@@ -199,11 +233,11 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
                 if len(lk) < MIN_BARS:
                     continue
                 x, y = [rl[k] for k in lk], [rf[k + 1] for k in lk]
-                r1 = _pearson(x, y)
+                r1 = _spearman(x, y)
                 if r1 is None or r1 < RHO_LEAD:
                     continue
                 same = [k for k in rl if k in rf]
-                r0 = _pearson([rl[k] for k in same], [rf[k] for k in same]) if len(same) >= MIN_BARS else 0.0
+                r0 = _spearman([rl[k] for k in same], [rf[k] for k in same]) if len(same) >= MIN_BARS else 0.0
                 if r1 > abs(r0 or 0.0):
                     corr.append({"a": lead, "b": follow, "rho": r1, "lag": 1, "beta": _slope(y, x), "n": len(lk)})
     for p in peers:
@@ -284,7 +318,10 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
         reverts = n_big >= 3 and n_back / n_big >= 0.6
         if n_big >= 3:
             why.append(f"past sudden moves bounced back {n_back} of {n_big} times")
-        conf = ("high" if out_of_line and not trending and reverts
+        news = abs(dev) >= NEWS_MOVE
+        if news:
+            why.append("a move this big is usually news (update, mayor, event), not a mispricing")
+        conf = ("low" if news else "high" if out_of_line and not trending and reverts
                 else "medium" if (out_of_line or pm is None) and not trending else "low")
         adj = math.exp(pm or 0.0)                       # if the group moved, the fair price moved with it
         if dev < 0:
@@ -304,16 +341,62 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
                 continue
             signals.append(_sig("rich", p, nm(p), "sell", sell_now, target, edge, conf, s["z"], units_h(p), why,
                                 f"{nm(p)} jumped {dev * 100:.0f}%",
-                                f"Sell what you hold now ({_c(sell_now)} instantly); don't buy until it's back near {_c(s['ref_buy'] * adj)}"))
+                                f"Sell what you hold now ({_c(sell_now)} instantly); don't buy until it's back under {_c(s['ref_buy'] * adj)}"))
+
+    # 1b) group events: correlated products that all made a big move the same way
+    big = {p: d["move"] for p, d in self_dev.items() if abs(d["move"]) >= BIG_MOVE and abs(d["z"]) >= Z_SELF}
+    parent = {p: p for p in big}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for p in big:
+        for _, q in peers[p]:
+            if q in big and (big[q] < 0) == (big[p] < 0):
+                parent[find(p)] = find(q)
+    groups: dict[str, list[str]] = {}
+    for p in big:
+        groups.setdefault(find(p), []).append(p)
+    event_groups = [m for m in groups.values() if len(m) >= 3]
+    # many big movers the same way in the same hours = a market-wide event, even without a week of correlation
+    grouped = {q for m in event_groups for q in m}
+    for sign in (-1, 1):
+        rest = [q for q in big if q not in grouped and (big[q] < 0) == (sign < 0)]
+        if len(rest) >= MARKET_EVENT:
+            event_groups.append(rest)
+    for members in event_groups:
+        members.sort(key=lambda q: big[q])
+        avg = median([big[q] for q in members])
+        down = avg < 0
+        names_list = ", ".join(f"{nm(q)} {(math.exp(big[q]) - 1) * 100:+.0f}%" for q in members[:6])
+        lead = members[0] if down else members[-1]
+        signals.append(_sig("event", lead, nm(lead), "avoid" if down else "sell", live[lead]["sell"], live[lead]["sell"],
+                            math.exp(avg) - 1, "high", self_dev[lead]["z"], units_h(lead),
+                            [f"{len(members)} products all {'fell' if down else 'jumped'} ≥ {BIG_MOVE * 100:.0f}% at once: {names_list}"
+                             + (" …" if len(members) > 6 else ""),
+                             "a whole group moving = news (update, mayor, event), so the old prices are no guide"],
+                            f"{len(members)} related products {'crashed' if down else 'pumped'} {abs(math.exp(avg) - 1) * 100:.0f}%",
+                            ("Don't buy the dip blindly; wait until it stops falling. Sell what you hold if you need the coins."
+                             if down else "Sell what you hold into the pump; don't buy now."),
+                            other=members[1] if len(members) > 1 else None))
+        signals[-1]["members"] = members
+    in_event = {q for ms in event_groups for q in ms}
+    signals[:] = [x for x in signals if x["type"] == "event" or x["id"] not in in_event]
 
     # 2) pair misprice (spread vs its twin)
     seen_pair = set()
     for c in corr:
         if c["lag"] != 0:
             continue
-        a, b, beta = c["a"], c["b"], c["beta"]
+        a, b = c["a"], c["b"]
         common = [k for k in G[a] if k in G[b]]
-        if len(common) < MIN_BARS or not (0.2 <= beta <= 5):
+        if len(common) < MIN_BARS:
+            continue
+        # hedge ratio from the price levels (Engle–Granger): log A ≈ α + β·log B
+        beta = _slope([G[a][k][0] for k in common], [G[b][k][0] for k in common])
+        if not (0.2 <= beta <= 5):
             continue
         spread = [G[a][k][0] - beta * G[b][k][0] for k in common]
         base_k = spread[:-recent] if len(spread) > recent + MIN_BARS // 2 else spread
@@ -324,12 +407,16 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
         gap = math.exp(now_sp - med) - 1
         if abs(z) < Z_PAIR or abs(gap) < MIN_MOVE:
             continue
+        # both legs just made a big move the same way (a crash / pump hit them differently): that's news, not a pair trade
+        ma, mb = self_dev.get(a, {}).get("move", 0.0), self_dev.get(b, {}).get("move", 0.0)
+        if abs(z) > Z_BREAK or ((ma < 0) == (mb < 0) and min(abs(ma), abs(mb)) >= BIG_MOVE):
+            continue
         # the spread must pull back to its middle (AR(1) φ < 1, half-life ≤ 2 days), else it's not a pair trade
         dev_sp = [x - med for x in spread]
         phi = _slope(dev_sp[1:], dev_sp[:-1])
-        if not (0 < phi < 1):
+        if phi >= 1:
             continue
-        half = math.log(0.5) / math.log(phi) * step_ms / 3_600_000
+        half = (math.log(0.5) / math.log(phi) if phi > 0.01 else 0.5) * step_ms / 3_600_000
         if half > 48:
             continue
         cheap, rich = (a, b) if z < 0 else (b, a)
@@ -352,9 +439,10 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
                              else f"If you need one of the two, buy {nm(cheap)} now, it's the cheaper of the pair"),
                             other=rich, rho=c["rho"]))
 
-    # 3) lead-lag: B follows A
+    # 3) lead-lag: B follows A (only when the history is fresh: the lead move must be the latest one)
+    fresh = now_ms / step_ms - (last_bucket + 1) <= 1.5
     for c in corr:
-        if c["lag"] != 1:
+        if c["lag"] != 1 or not fresh:
             continue
         a, b = c["a"], c["b"]
         ra = R[a]
@@ -394,8 +482,11 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
         if out not in live or ing not in live or out not in ok or ing not in ok or k <= 0:
             continue
         lo, li = live[out], live[ing]
-        cost = k * (li["sell"] + 0.1)
-        rev = (lo["buy"] - 0.1) * tax
+        # a buy order only fills when the spread is tight; otherwise you pay the instant-buy price (same as craft_flips)
+        unit = li["sell"] + 0.1 if li["sell"] >= 0.9 * li["buy"] else li["buy"]
+        cost = k * unit
+        out_price = lo["buy"] - 0.1 if lo["sell"] >= 0.9 * lo["buy"] else lo["sell"]     # wide spread: offers sit, sell instantly
+        rev = out_price * tax
         margin = rev / cost - 1
         hist = []
         if out in G and ing in G:
@@ -411,28 +502,31 @@ def analyse(series: dict[str, list[tuple]], live: dict[str, dict], step_ms: int,
         if zr is not None:
             why.append(f"the price ratio is {zr:+.1f}σ vs this week")
         if margin >= 0.06 or (margin >= MIN_EDGE and zr is not None and zr >= Z_PAIR):
-            signals.append(_sig("craft", out, nm(out), "craft", cost, lo["buy"] - 0.1, margin, "high" if margin >= 0.06 else "medium",
+            signals.append(_sig("craft", out, nm(out), "craft", cost, out_price, margin, "high" if margin >= 0.06 else "medium",
                                 zr or 0.0, units_h(out), why, f"Craft {nm(out)} from {nm(ing)}",
-                                f"Buy {k:g} {nm(ing)} (orders at {_c(li['sell'] + 0.1)}), craft, sell offer at {_c(lo['buy'] - 0.1)}",
+                                f"Buy {k:g} {nm(ing)} ({'orders at' if unit < li['buy'] else 'instantly at'} {_c(unit)}), craft, {'sell offer at' if out_price > lo['sell'] else 'sell instantly at'} {_c(out_price)}",
                                 other=ing))
         elif zr is not None and zr <= -Z_PAIR:
             save = 1 - (lo["buy"]) / (k * li["buy"])
             if save >= MIN_MOVE:
                 signals.append(_sig("premium", out, nm(out), "prefer", lo["buy"], k * li["buy"], save, "medium", zr, units_h(out), why,
                                     f"{nm(out)} is cheap vs {k:g} {nm(ing)}",
-                                    f"Need {nm(ing)} for a craft? Buying {nm(out)} directly is {save * 100:.0f}% cheaper than {k:g} raw",
+                                    f"Need {nm(out)}? Buy it ready-made: {save * 100:.0f}% cheaper than crafting it from {k:g} {nm(ing)}",
                                     other=ing))
 
+    signals[:] = [x for x in signals if x["type"] == "event" or x["id"] not in in_event]   # pairs/follows on event members too
     rank = {"high": 3, "medium": 2, "low": 1}
-    signals.sort(key=lambda s: (rank[s["conf"]], min(s["edge"], 0.5) * math.sqrt(max(1.0, s["units_h"] * s["price"]))), reverse=True)
+    signals.sort(key=lambda s: (s["type"] == "event", rank[s["conf"]], min(abs(s["edge"]), 0.5) * math.sqrt(max(1.0, s["units_h"] * s["price"]))),
+                 reverse=True)
     corr.sort(key=lambda c: c["rho"], reverse=True)
     shown = {s["id"] for s in signals[:80]} | {s.get("other") for s in signals[:80] if s.get("other")}
     return {
         "generated": now_ms, "source": source, "step_h": step_ms / 3_600_000, "products": len(pids),
+        "history_lag_h": round(max(0.0, (now_ms - (last_bucket + 1) * step_ms) / 3_600_000), 1),
         "liquid": len(ok), "pairs": len([c for c in corr if c["lag"] == 0]), "leads": len([c for c in corr if c["lag"] == 1]),
         "signals": signals[:80],
         "correlations": [dict(c, rho=round(c["rho"], 3), beta=round(c["beta"], 3)) for c in corr[:300]],
-        "names": {p: nm(p) for p in shown},
+        "names": {p: nm(p) for p in shown | {c["a"] for c in corr[:300]} | {c["b"] for c in corr[:300]}},
         # price history (mid) of every product in a suggestion, for the ERP chart: [first bucket, step ms, values…]
         "spark": {p: _spark(G[p], step_ms) for p in shown if p in G},
     }

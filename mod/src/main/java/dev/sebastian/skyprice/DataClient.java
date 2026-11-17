@@ -276,6 +276,33 @@ final class DataClient {
 		return forecastsGenerated;
 	}
 
+	private volatile JsonObject signals;
+	private volatile long signalsAt;
+	private volatile boolean signalsLoading;
+
+	/**
+	 * Bazaar misprices, correlations and suggestions (market/bzsignals.py): your collector's /signals when it has
+	 * 24 h+ of data, else the GitHub job's {dataUrl}/bz_signals.json (SkyCofl 7-day history, every 2 h). Refreshed
+	 * every 10 min; null until loaded.
+	 */
+	JsonObject bzSignals() {
+		long now = System.currentTimeMillis();
+		if (!signalsLoading && now - signalsAt > (signals == null ? 60_000L : 600_000L)) {
+			signalsLoading = true;
+			signalsAt = now;
+			CompletableFuture<JsonObject> local = (cfg.localServer == null || cfg.localServer.isBlank())
+					? CompletableFuture.completedFuture(null)
+					: getJson(cfg.localServer + "/signals", 5).handle((j, e) -> e != null || j == null || !j.has("signals") ? null : j);
+			local.thenCompose(j -> j != null || cfg.dataUrl == null || cfg.dataUrl.isBlank() ? CompletableFuture.completedFuture(j)
+							: getJson(cfg.dataUrl + "/bz_signals.json", 20).handle((r, e) -> e != null ? null : r))
+					.whenComplete((j, e) -> {
+						if (j != null && j.has("signals")) signals = j;
+						signalsLoading = false;
+					});
+		}
+		return signals;
+	}
+
 	private volatile JsonObject craft;
 	private volatile long craftAt;
 

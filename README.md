@@ -280,7 +280,7 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
   vs its 7-day level, listings far above sales) blocks the flip banner.
 - **Simple mode** (default): tooltips show only what to do. **Pro** (footer chip or `/skyprice mode pro`): every number.
 - **Alerts with a ping**: item sold, outbid, bazaar order filled / outbid / undercut, the best new AH flips (max 3 per scan).
-- Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`, `/skyprice forecast on|off`.
+- Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`, `/skyprice forecast on|off`, `/skyprice signals`.
 - Nothing is automated: the mod only shows, opens what you click and copies prices. You buy, bid, list and claim yourself.
 
 ### Flips with forecasts + identical copies only (mod 1.21.0+)
@@ -297,6 +297,27 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
   copies already listed. Rows show `fc −3%` when it changed something; the bazaar tooltip says by how much.
 - Forecasts come from **your collector** (run.py: local `/forecasts`, else the published `forecasts.json`). With no
   collector data yet the flips work exactly as before.
+
+### Bazaar misprices, correlations and suggestions — ERP → Signals (mod 1.22.0+)
+
+Press **E → ERP → Signals**. `market/bzsignals.py` checks every liquid bazaar product (≥ 2,000 units and 5M coins a
+week on both sides, spread ≤ 60 %) and turns what it finds into suggestions with a reason list, a purse-sized amount
+and a 7-day chart. Data: your collector's hourly bars once it has 24 h (local `GET /signals`), otherwise a GitHub job
+every 2 h on SkyCofl's 7-day history of the ~300 most traded products (`data/bz_signals.json`).
+
+| Badge | What it found | Suggestion |
+|---|---|---|
+| **B** cheap / **S** rich | the move over the last hours is ≥ 2.5× what this product normally moves in that time (robust σ of its 2 h returns × √hours) and ≥ 4 % | buy order now → sell offer back at the price before the drop (after tax), or sell what you hold |
+| **P** pair | two products whose price changes correlate (Spearman ρ ≥ 0.5) drifted ≥ 4 % / 2σ apart, and their spread mean-reverts (half-life ≤ 48 h) | buy the laggard |
+| **F** follows | B has moved one bar after A (lag ρ ≥ 0.5, stronger than same-bar ρ); A just moved ≥ 2.5σ and B hasn't | buy / sell B before it follows |
+| **C** craft / **$** cheaper form | 1 enchanted = k raw (NEU recipes): crafting margin after tax ≥ 6 %, or ≥ 3 % and unusually high this week; or the ready-made form is unusually cheap | craft and sell / buy it ready-made |
+| **!** market event | ≥ 6 products (or ≥ 3 correlated ones) moved ≥ 15 % the same way at once — an update, a mayor | don't buy the dip blindly; those products leave the flip list and their tooltips warn you until it settles |
+
+Confidence: **high** needs the move to be out of line with the product's correlated peers, no drift the same way
+before it, and proof its past sudden moves bounced back (≥ 3, ≥ 60 %). A single move ≥ 30 % is treated as news (low).
+Click a row for the reasons; **Open in Bazaar** starts the usual click flow (name → amount → price), **+ Watch** adds
+it to ERP → Bazaar. The Coach shows the two strongest; `/skyprice signals` prints the top 6 in chat.
+Correlation isn't causation and a week is a short sample: each suggestion is a lead with its reasons, not a promise.
 
 ### Pets priced by level + rarity (mod 1.20.0+)
 
