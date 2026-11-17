@@ -18,6 +18,21 @@ lowest MAD wins. This is done separately for each horizon (1h, 6h, 24h), using e
 that horizon, because the model that is best one hour ahead (often a trend model) can be
 badly wrong a day ahead. A |tracking signal| above the limit flags the model as biased.
 
+Which models are even allowed depends on the series' demand pattern ("Selecting a forecasting
+method" + "Demand patterns" slides), diagnosed fresh every run, so the choice changes as data
+accumulates:
+
+  too little data          → no forecast (slides: qualitative methods when data are scarce; the
+                             mod falls back to market judgement = recent sales / lowest BIN)
+  randomness around a level→ last period, moving averages, weighted MA, exponential smoothing,
+                             with α picked by the slide rule: more randomness → lower α
+  trend (significant slope)→ + Holt's adjusted exponential smoothing and time-series regression
+                             (without a real trend these only extrapolate noise, so they're left out)
+  seasonality              → hour-of-day index (4-step procedure) on top of the chosen model
+A model whose |tracking signal| is over the limit is skipped for the next best one ("packages
+use MFE, MAD, MAPE or the tracking signal to flag a poor model and kick off a search for a
+better one").
+
 The range shown in-game comes from the inventory formula sheet:
   σ ≈ √(π/2)·MAD ≈ 1.25·MAD   (MAD measured at that horizon)
   range = forecast ± z·σ,  z = NORM.S.INV(0.5 + level/2)
@@ -156,6 +171,62 @@ def accuracy(D: Series, F: OneStep, start: int, end: int) -> Optional[Accuracy]:
     )
 
 
+# ----------------------------------------------------------------------------- demand pattern
+
+@dataclass
+class Pattern:
+    """What the recent series looks like (randomness / trend), see the "Demand patterns" slide."""
+    trend: bool
+    slope_pct_per_h: float     # regression slope over the window, % of the level per hour
+    t_stat: float              # slope / its standard error
+    randomness: str            # "low" | "medium" | "high"
+    noise_pct: float           # mean |D(t) - D(t-1)| as % of the level
+    window: int
+    alphas: tuple = ()
+    seasonal: bool = False     # set later, when the hour-of-day index is kept
+
+    @property
+    def method(self) -> str:
+        base = ("trend → Holt / regression allowed" if self.trend else "level → moving averages / exp. smoothing")
+        return f"{base}, {self.randomness} randomness (α {self.alphas[0]:g}–{self.alphas[-1]:g})" + \
+            (", hour-of-day seasonal" if self.seasonal else "")
+
+    def to_dict(self) -> dict:
+        return {"trend": self.trend, "slope_pct_per_h": self.slope_pct_per_h, "t_stat": self.t_stat,
+                "randomness": self.randomness, "noise_pct": self.noise_pct, "seasonal": self.seasonal,
+                "method": self.method}
+
+
+TREND_T = 2.0          # |t| of the slope (≈ 95 % that it isn't zero)
+TREND_MIN_MOVE = 0.01  # and the line moves ≥ 1 % of the level over the window (else it doesn't matter)
+NOISE_HIGH = 2.0       # % average hour-to-hour move
+NOISE_LOW = 0.5
+
+
+def diagnose(D: Series, window: int = 48) -> Pattern:
+    w = D[-min(window, len(D)):]
+    k = len(w)
+    level = sum(w) / k if k else 0.0
+    xs = list(range(1, k + 1))
+    a, b = linear_regression(xs, w) if k >= 3 else (level, 0.0)
+    t = 0.0
+    if k >= 4:
+        sse = sum((y - (a + b * x)) ** 2 for x, y in zip(xs, w))
+        sxx = sum((x - (k + 1) / 2) ** 2 for x in xs)
+        se = math.sqrt(sse / (k - 2) / sxx) if sxx > 0 and sse > 0 else 0.0
+        t = b / se if se > 0 else (0.0 if b == 0 else math.copysign(99.0, b))
+    move = abs(b) * k / level if level > 0 else 0.0
+    trend = k >= 12 and abs(t) >= TREND_T and move >= TREND_MIN_MOVE
+    noise = (sum(abs(w[i] - w[i - 1]) for i in range(1, k)) / (k - 1) / level * 100) if k > 1 and level > 0 else 0.0
+    if noise >= NOISE_HIGH:
+        rnd, alphas = "high", (0.1, 0.2, 0.3)
+    elif noise < NOISE_LOW:
+        rnd, alphas = "low", (0.5, 0.6, 0.7, 0.8, 0.9)
+    else:
+        rnd, alphas = "medium", (0.2, 0.3, 0.4, 0.5, 0.6, 0.7)
+    return Pattern(trend, (b / level * 100) if level > 0 else 0.0, t, rnd, noise, k, alphas)
+
+
 # ----------------------------------------------------------------------------- model zoo
 #
 # Every model is expressed as fc(s, h): the forecast for period s+h made when the last
@@ -169,8 +240,11 @@ class Model:
     complexity: int = 0
 
 
-def _models(D: Series) -> list[Model]:
+def _models(D: Series, pattern: Optional[Pattern] = None) -> list[Model]:
+    """Every model the slides give; with a pattern, only the family that fits it (see the module doc)."""
     n = len(D)
+    alphas = pattern.alphas if pattern else (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+    trend_models = pattern is None or pattern.trend
     pre = [0.0]
     for v in D:
         pre.append(pre[-1] + v)
@@ -187,12 +261,12 @@ def _models(D: Series) -> list[Model]:
             ms.append(Model(f"Weighted MA ({label})",
                             lambda s, h, w=w: sum(wi * D[s - i] for i, wi in enumerate(w)) if s >= len(w) - 1 else None, 1))
 
-    for a in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+    for a in alphas:
         F, nxt = exponential_smoothing(D, a)
         S = F[1:] + [nxt]                      # S[s] = forecast made after seeing D[s]
         ms.append(Model(f"Exp. smoothing (α={a:g})", lambda s, h, S=S: S[s], 2))
 
-    if n >= 12:
+    if n >= 12 and trend_models:
         for a in (0.1, 0.2, 0.3, 0.5, 0.7, 0.9):
             for b in (0.05, 0.1, 0.2, 0.3, 0.5):
                 Fs, Ts = _holt_states(D, a, b)
@@ -200,7 +274,7 @@ def _models(D: Series) -> list[Model]:
                                 lambda s, h, Fs=Fs, Ts=Ts: Fs[s] + h * Ts[s], 3))
 
     for k in (12, 24, 48):
-        if n > k + 6:
+        if n > k + 6 and trend_models:
             xs = list(range(1, k + 1))
             ab = [None] * n
             for s in range(k - 1, n):
@@ -244,6 +318,7 @@ class ForecastResult:
     last_value: float
     horizons: dict[int, HorizonResult]
     biased: bool
+    pattern: Optional[Pattern] = None
 
     @property
     def forecasts(self) -> dict[int, float]:
@@ -276,7 +351,8 @@ class ForecastResult:
                 "forecasts": {k: v["forecast"] for k, v in hs.items()},
                 "ranges": {k: v["range"] for k, v in hs.items()},
                 "accuracy": hs[str(first.h)]["accuracy"],
-                "horizons": hs, "biased": self.biased}
+                "horizons": hs, "biased": self.biased,
+                "pattern": self.pattern.to_dict() if self.pattern else None}
 
 
 def _hstep(D: Series, m: Model, h: int) -> OneStep:
@@ -288,7 +364,8 @@ def _hstep(D: Series, m: Model, h: int) -> OneStep:
 
 
 def forecast(D: Series, hours_of_day: list[int], horizons=(1, 6, 24), eval_hours: int = 72,
-             min_points: int = 12, range_level: float = 0.80, ts_limit: float = 4.0) -> Optional[ForecastResult]:
+             min_points: int = 12, range_level: float = 0.80, ts_limit: float = 4.0,
+             by_pattern: bool = True) -> Optional[ForecastResult]:
     """For each horizon, score every model on that horizon's errors over the recent window
     (lowest MAD wins), optionally apply the hour-of-day seasonal index, and forecast.
 
@@ -297,7 +374,8 @@ def forecast(D: Series, hours_of_day: list[int], horizons=(1, 6, 24), eval_hours
     n = len(D)
     if n < min_points:
         return None
-    models = _models(D)
+    pattern = diagnose(D) if by_pattern else None
+    models = _models(D, pattern)
     z = NormalDist().inv_cdf(0.5 + range_level / 2)
     results: dict[int, HorizonResult] = {}
 
@@ -320,7 +398,9 @@ def forecast(D: Series, hours_of_day: list[int], horizons=(1, 6, 24), eval_hours
         if not ranked:
             continue
         ranked.sort(key=lambda r: (r[0], r[1]))
-        _, _, best, F, acc = ranked[0]
+        # lowest MAD wins, but a model that keeps erring one way (|TS| over the limit) is passed over
+        pick = next((r for r in ranked if abs(r[4].tracking_signal) <= ts_limit), ranked[0])
+        _, _, best, F, acc = pick
         idx = None
 
         # Seasonal 4-step procedure with season = hour of day. Indices are learned on data
@@ -346,4 +426,6 @@ def forecast(D: Series, hours_of_day: list[int], horizons=(1, 6, 24), eval_hours
     if not results:
         return None
     first = results[min(results)]
-    return ForecastResult(D[-1], results, abs(first.acc.tracking_signal) > ts_limit)
+    if pattern:
+        pattern.seasonal = any(r.seasonal for r in results.values())
+    return ForecastResult(D[-1], results, abs(first.acc.tracking_signal) > ts_limit, pattern)

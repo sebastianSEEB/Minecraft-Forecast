@@ -36,6 +36,24 @@ def safe_name(key: str) -> str:
     return key.replace(":", "__")
 
 
+def compact_forecast(fc: dict | None) -> dict | None:
+    """{side: {last, f:[1h,6h,24h], lo, hi, mape, biased, trend, rnd, seas, m}} for the sides that have a forecast."""
+    if not fc:
+        return None
+    out = {}
+    for side, f in fc.items():
+        if not f or not f.get("available"):
+            continue
+        hs = [f["h"].get(h) or f["h"].get(int(h)) for h in ("1", "6", "24")]
+        if any(h is None for h in hs):
+            continue
+        pat = f.get("pattern") or {}
+        out[side] = {"last": f["last"], "f": [h["f"] for h in hs], "lo": [h["lo"] for h in hs], "hi": [h["hi"] for h in hs],
+                     "mape": [h["mape"] for h in hs], "biased": f["biased"], "trend": bool(pat.get("trend")),
+                     "rnd": pat.get("randomness"), "seas": bool(pat.get("seasonal")), "m": hs[0]["model"]}
+    return out or None
+
+
 def export_site(cfg: Config, db: Database, out_dir: str | Path | None = None, now_ms: int | None = None) -> dict:
     out = Path(out_dir or Path(cfg.db_path).parent / "site")
     tmp_items = out / "data" / "items.tmp"
@@ -66,13 +84,18 @@ def export_site(cfg: Config, db: Database, out_dir: str | Path | None = None, no
     top_ah = {i["k"] for i in sorted([i for i in items if i["kind"] == "ah"],
                                      key=lambda i: -((i.get("sales") or 0) * 10 + (i.get("listed") or 0)))[:cfg.publish_top_auction]}
     seasons = []
+    fc_all: dict = {}
     for it in items:
         k = it["k"]
-        doc = item_detail(c, k, cfg, now_ms, summary=it, with_forecast=k in top_bz or k in top_ah)
+        doc = item_detail(c, k, cfg, now_ms, summary=it,
+                          with_forecast=cfg.forecast_all or k in top_bz or k in top_ah)
         if doc is None:
             continue
         (tmp_items / f"{safe_name(k)}.json").write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
         fc = doc["forecast"]
+        cf = compact_forecast(fc)
+        if cf:
+            fc_all[k] = cf
         main = (fc or {}).get("buy") or (fc or {}).get("main")
         if main and main.get("available"):
             f24 = main["h"].get("24") or main["h"][max(main["h"], key=int)]
@@ -101,6 +124,10 @@ def export_site(cfg: Config, db: Database, out_dir: str | Path | None = None, no
         "needs": {"daily": 24 * 5, "skyblock_year": 124 * 5, "weekly": 168 * 5},
         "rows": seasons}, separators=(",", ":")), encoding="utf-8")
 
+    # every forecast in one small file: what the mod's flip lists use (data/forecasts.json, local /forecasts)
+    (out / "data" / "forecasts.json").write_text(json.dumps(
+        {"generated": now_ms, "horizons": [1, 6, 24], "items": fc_all}, separators=(",", ":")), encoding="utf-8")
+
     from .valuation import components_doc
     (out / "data" / "components.json").write_text(json.dumps(components_doc(c), separators=(",", ":")), encoding="utf-8")
     deals = [dict(r) for r in c.execute("SELECT * FROM deals ORDER BY profit DESC LIMIT 200")]
@@ -118,7 +145,7 @@ def export_site(cfg: Config, db: Database, out_dir: str | Path | None = None, no
         "bazaar_items": len(bz_rows), "auction_items": len(ah),
         "sales_24h": c.execute("SELECT COUNT(*) FROM ah_sale WHERE ts>?", (now_ms - DAY_MS,)).fetchone()[0],
         "coins_24h": r4(c.execute("SELECT SUM(price) FROM ah_sale WHERE ts>?", (now_ms - DAY_MS,)).fetchone()[0] or 0),
-        "detailed": len(items), "forecasted": len(top_bz) + len(top_ah), "seasonal": len({s["k"] for s in seasons}),
+        "detailed": len(items), "forecasted": len(fc_all), "seasonal": len({s["k"] for s in seasons}),
         "source": cfg.publish_label, "export_seconds": round(time.time() - t0, 1),
     }
     (out / "data" / "summary.json").write_text(json.dumps({"stats": stats, "items": items}, separators=(",", ":")),

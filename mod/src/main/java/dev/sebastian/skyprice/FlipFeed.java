@@ -16,8 +16,11 @@ import com.google.gson.JsonObject;
  * While the scan reads every page, each BIN's item is identified (same key as the tooltip) and the cheapest 6 copies
  * of every item are kept. A candidate is an item whose cheapest BIN sits clearly below the next copies:
  *
- *   reference = min(2nd cheapest, median of the 2nd–5th cheapest)     (needs ≥ 3 listed)
- *   resale    = just under the reference, never above the item's fair value (tooltip data / SkyCofl median)
+ * Only IDENTICAL copies are compared (same stars, recomb, reforge, big enchants, gems, attributes, skin…).
+ *
+ *   reference = min(2nd cheapest, median of the 2nd–5th cheapest)     (needs ≥ 3 identical copies listed)
+ *   resale    = just under the reference, never above the item's fair value, never above what the cheapest
+ *               copies actually sold for lately (clearing floor, see judge)
  *   profit    = resale after AH fees − price
  *
  * It's shown only if: profit ≥ your minimum (% and coins), the item sells ≥ minSalesPerDay, it should resell within
@@ -25,9 +28,10 @@ import com.google.gson.JsonObject;
  * too much to compare listings). Always check the auction's own tooltip before buying: it values that exact copy.
  */
 final class FlipFeed {
-	record Candidate(String key, String name, String uuid, double price, double ref, int listed, long scanAt) {}
+	record Candidate(String key, String variant, String name, String uuid, double price, double ref, int listed, long scanAt) {}
 
-	record Flip(Candidate c, double resale, double net, double profit, double pct, Market.Liquidity liq) {}
+	record Flip(Candidate c, double resale, double net, double profit, double pct, Market.Liquidity liq, double floor,
+			double forecast) {}
 
 	record View(List<Flip> flips, int checking, int candidates) {}
 
@@ -86,8 +90,9 @@ final class FlipFeed {
 		if (!a.has("item_bytes") || !a.has("starting_bid")) return;
 		String[] key = {null};
 		int[] count = {1};
+		String[] variant = {""};
 		try {
-			AhScanner.identify(a.get("item_bytes").getAsString(), key, count);
+			AhScanner.identify(a.get("item_bytes").getAsString(), key, count, variant);
 		} catch (Exception e) {
 			return;
 		}
@@ -96,7 +101,9 @@ final class FlipFeed {
 		double unit = a.get("starting_bid").getAsDouble() / Math.max(1, count[0]);
 		if (unit <= 0) return;
 		String name = a.has("item_name") ? a.get("item_name").getAsString() : k;
-		building.computeIfAbsent(k, x -> new Bucket()).add(unit, a.get("uuid").getAsString(), name);
+		// only identical copies are compared: a plain one vs a starred/recombed/enchanted one is not a "gap"
+		String v = variant[0] == null ? "" : variant[0];
+		building.computeIfAbsent(v.isEmpty() ? k : k + "#" + v, x -> new Bucket()).add(unit, a.get("uuid").getAsString(), name);
 	}
 
 	/** End of a scan: rank the gaps and start fetching prices for the best ones. */
@@ -114,13 +121,16 @@ final class FlipFeed {
 		for (int i = 0; i < Math.min(40, out.size()); i++) SkyPriceClient.docFor(out.get(i).key(), true);   // warm prices (SkyCofl is rate limited)
 	}
 
-	private static Candidate candidate(String key, Bucket b, long ts) {
+	private static Candidate candidate(String bucketKey, Bucket b, long ts) {
+		int hash = bucketKey.indexOf('#');
+		String key = hash < 0 ? bucketKey : bucketKey.substring(0, hash);
+		String variant = hash < 0 ? "" : bucketKey.substring(hash + 1);
 		if (b.n < 3) return null;
 		List<Double> next = new ArrayList<>();
 		for (int i = 1; i < Math.min(b.n, 5); i++) next.add(b.p[i]);
 		double ref = Math.min(b.p[1], Market.median(next));
 		if (b.p[0] >= ref * 0.97) return null;
-		Candidate c = new Candidate(key, b.names[0], b.u[0], b.p[0], ref, b.listed, ts);
+		Candidate c = new Candidate(key, variant, b.names[0], b.u[0], b.p[0], ref, b.listed, ts);
 		double raw = rawProfit(c);
 		return raw > 0 && raw / c.price() >= 0.02 ? c : null;
 	}
@@ -138,11 +148,13 @@ final class FlipFeed {
 		for (Candidate c : candidates) {
 			if (c.price() > budget) continue;
 			JsonObject d = SkyPriceClient.docFor(c.key(), false);
-			if (d == null) {
+			List<double[]> week = SkyPriceClient.cofl == null ? null : SkyPriceClient.cofl.week(c.key(), true);
+			if (d == null || week == null) {
 				checking++;
 				continue;
 			}
-			Flip f = judge(c, d);
+			Forecasts.Side fc = cfg.forecastFlips && SkyPriceClient.data() != null ? SkyPriceClient.data().forecast(c.key(), "main") : null;
+			Flip f = judge(c, d, week, fc);
 			if (f == null) continue;
 			if (f.pct() < minPct || f.profit() < cfg.minFlipProfitCoins) continue;
 			if (f.liq().perDay() < cfg.minSalesPerDay || f.liq().etaHours() > cfg.maxHoldHours) continue;
@@ -154,14 +166,51 @@ final class FlipFeed {
 		return new View(out, checking, candidates.size());
 	}
 
-	/** Pure: resale capped at fair value, profit after fees, liquidity. Null when fair value is unknown. */
-	static Flip judge(Candidate c, JsonObject d) {
+	/**
+	 * Pure: what you can really resell for, profit after fees, liquidity. Null when it can't be priced.
+	 *
+	 * resale = the lowest of
+	 *   - just under the next identical copies on the AH (asking prices — they may never sell),
+	 *   - the item's fair value (median of recent sales, all copies), and
+	 *   - just under the CLEARING FLOOR: the median of the cheapest sale in each period of the last 3 days.
+	 * The floor is what the cheapest copies actually sold for. Listings of the same item can sit far above it (and
+	 * upgraded copies pull the average sale up), so without it a plain copy looked like a 3M flip that never sells.
+	 */
+	static Flip judge(Candidate c, JsonObject d, List<double[]> week) {
+		return judge(c, d, week, null);
+	}
+
+	/**
+	 * With a forecast (forecasting on): the sales-based part of the resale (fair value, clearing floor) is moved by the
+	 * forecast counted at the time it should sell (see {@link Forecasts#counted}). The other listings' asking price
+	 * stays a hard cap: you can't sell above copies that are already listed cheaper.
+	 */
+	static Flip judge(Candidate c, JsonObject d, List<double[]> week, Forecasts.Side forecast) {
 		Double fair = Verdict.fair(d);
 		if (fair == null || fair <= 0) return null;
-		double resale = Math.min(Market.undercut(c.ref()), fair);
+		double floor = clearingFloor(week);
+		if (!(floor > 0)) return null;
+		Market.Liquidity liq = Market.liquidity(d, fair);
+		double fc = forecast == null ? 0 : Forecasts.counted(forecast, liq.etaHours());
+		double resale = Math.min(Market.undercut(c.ref()), Math.min(fair, Market.undercut(floor)) * (1 + fc));
 		double net = Verdict.netAfterFees(resale);
 		double profit = net - c.price();
-		return new Flip(c, resale, net, profit, profit / c.price(), Market.liquidity(d, fair));
+		return new Flip(c, resale, net, profit, profit / c.price(), liq, floor, fc);
+	}
+
+	/** Median of each period's cheapest sale over the last 3 days (falls back to the whole week); 0 when < 3 periods. */
+	static double clearingFloor(List<double[]> week) {
+		if (week == null || week.isEmpty()) return 0;
+		double last = 0;
+		for (double[] p : week) last = Math.max(last, p[0]);
+		List<Double> recent = new ArrayList<>(), all = new ArrayList<>();
+		for (double[] p : week) {
+			if (!(p[1] > 0) || p[4] <= 0) continue;
+			all.add(p[1]);
+			if (p[0] >= last - 3 * 86_400_000.0) recent.add(p[1]);
+		}
+		List<Double> use = recent.size() >= 4 ? recent : all;
+		return use.size() < 3 ? 0 : Market.median(use);
 	}
 
 	static List<Flip> last() {

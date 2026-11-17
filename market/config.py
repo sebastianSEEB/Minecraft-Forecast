@@ -54,6 +54,8 @@ class Config:
     # Dashboard (static website, see market/publish.py)
     publish_interval: int = 3600       # rebuild the dashboard every hour (0 = never)
     publish_repo: str = ""             # e.g. "https://github.com/sebastianSEEB/skyblock-market.git" -> GitHub Pages
+    forecast_all: bool = True          # forecast every item with enough data (the set grows as data accumulates);
+                                       # False = only the publish_top_* most active ones
     publish_top_bazaar: int = 600      # most active products that get forecasts (all items get history + seasonality)
     publish_top_auction: int = 600
     publish_git_name: str = "skyblock-market collector"

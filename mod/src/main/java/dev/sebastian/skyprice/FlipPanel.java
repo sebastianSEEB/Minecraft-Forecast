@@ -202,6 +202,15 @@ final class FlipPanel {
 		chip(p, cx, y, "⚙", false, () -> { cfg.setupDone = false; cfg.save(); });
 		cx += chipW("⚙") + 2;
 		chip(p, cx, y, "⟳", false, () -> { viewAt = 0; AhScanner.poke(cfg, true); });
+		cx += chipW("⟳") + 2;
+		chip(p, cx, y, "FC", cfg.forecastFlips, () -> {                // price forecasts in the flip lists on/off
+			cfg.forecastFlips = !cfg.forecastFlips;
+			cfg.save();
+			viewAt = 0;
+			Chat.say(HudFormatter.line("[SkyPrice] ", HudFormatter.GOLD, "Forecasts in flips " + (cfg.forecastFlips ? "ON" : "OFF"),
+					HudFormatter.WHITE, cfg.forecastFlips ? " (flips count the expected price at the time you sell)" : " (live prices only)",
+					HudFormatter.GRAY));
+		});
 		return y + 13;
 	}
 
@@ -252,7 +261,7 @@ final class FlipPanel {
 		for (int i = 0; i < fl.size() && y + R2 <= bottom; i++) {
 			FlipFeed.Flip f = fl.get(i);
 			String detail = HudFormatter.fmt(f.c().price()) + " → " + HudFormatter.fmt(f.resale()) + " · "
-					+ Market.eta(f.liq().etaHours()) + " · " + f.liq().confidence();
+					+ Market.eta(f.liq().etaHours()) + " · " + f.liq().confidence() + Forecasts.tag(f.forecast());
 			String uuid = f.c().uuid();
 			row(p, x, y, w, (i + 1) + ". " + f.c().name(), "+" + HudFormatter.fmt(f.profit()), GOOD, detail,
 					() -> Chat.command("viewauction " + uuid));
@@ -302,7 +311,8 @@ final class FlipPanel {
 			Market.BzFlip f = list.get(i);
 			String name = Bazaar.name(f.id(), data);
 			String detail = String.format(Locale.ROOT, "%s× %s→%s · +%s · %s", HudFormatter.fmt((double) f.qty()),
-					HudFormatter.fmt(f.order()), HudFormatter.fmt(f.offer()), HudFormatter.fmt(f.totalProfit()), Market.dur(f.roundHours()));
+					HudFormatter.fmt(f.order()), HudFormatter.fmt(f.offer()), HudFormatter.fmt(f.totalProfit()), Market.dur(f.roundHours()))
+					+ Forecasts.tag(f.forecast());
 			row(p, x, y, w, name, "+" + HudFormatter.fmt(f.profitPerHour()) + "/h", GOOD, detail, () -> copyBazaar(f, name));
 			y += R2;
 		}

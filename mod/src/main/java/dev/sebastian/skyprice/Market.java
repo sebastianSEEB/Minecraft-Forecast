@@ -105,7 +105,14 @@ final class Market {
 	 */
 	record BzFlip(String id, double order, double offer, double perUnit, double pct, double buyFillPerHour, double sellFillPerHour,
 			long qty, double fillHours, double sellHours, double totalProfit, double profitPerHour, int competition,
-			double marketPerHour) {
+			double marketPerHour, double forecast) {
+		BzFlip(String id, double order, double offer, double perUnit, double pct, double buyFillPerHour, double sellFillPerHour,
+				long qty, double fillHours, double sellHours, double totalProfit, double profitPerHour, int competition,
+				double marketPerHour) {
+			this(id, order, offer, perUnit, pct, buyFillPerHour, sellFillPerHour, qty, fillHours, sellHours, totalProfit,
+					profitPerHour, competition, marketPerHour, 0);
+		}
+
 		double unitsPerHour() {
 			return marketPerHour;
 		}
@@ -141,8 +148,26 @@ final class Market {
 	 */
 	static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders,
 			double taxPct, double share, double budget, double roundHours) {
+		return bazaarFlip(id, instaBuy, instaSell, buyWeek, sellWeek, orders, taxPct, share, budget, roundHours, null);
+	}
+
+	/**
+	 * Same, with the sell price forecast: the offer is placed when your order has filled and sells over the round, so
+	 * its price is moved by the forecast change counted at that time (fill + sell hours, see {@link Forecasts#counted}).
+	 * @param exitForecast forecast of the instant-buy price (the "buy" series), or null
+	 */
+	static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders,
+			double taxPct, double share, double budget, double roundHours, Forecasts.Side exitForecast) {
+		BzFlip now = bazaarFlip(id, instaBuy, instaSell, buyWeek, sellWeek, orders, taxPct, share, budget, roundHours, 0);
+		if (now == null || exitForecast == null || now.qty() < 1) return now;
+		double fc = Forecasts.counted(exitForecast, now.fillHours() + now.sellHours() / 2);   // average unit sells mid-way
+		return fc == 0 ? now : bazaarFlip(id, instaBuy, instaSell, buyWeek, sellWeek, orders, taxPct, share, budget, roundHours, fc);
+	}
+
+	private static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders,
+			double taxPct, double share, double budget, double roundHours, double fc) {
 		if (instaBuy <= 0 || instaSell <= 0) return null;
-		double order = instaSell + 0.1, offer = instaBuy - 0.1;
+		double order = instaSell + 0.1, offer = (instaBuy - 0.1) * (1 + fc);
 		double perUnit = offer * (1 - taxPct / 100.0) - order;
 		double pct = perUnit / order;
 		double buyFill = sellWeek / 168.0 * share;                // your buy order fills from instant sells
@@ -162,7 +187,7 @@ final class Market {
 				perHour = total / Math.max(0.25, fillH + sellH);
 			}
 		}
-		return new BzFlip(id, order, offer, perUnit, pct, buyFill, sellFill, qty, fillH, sellH, total, Math.max(0, perHour), orders, market);
+		return new BzFlip(id, order, offer, perUnit, pct, buyFill, sellFill, qty, fillH, sellH, total, Math.max(0, perHour), orders, market, fc);
 	}
 
 	/** "12m", "1.5h", "3d" */

@@ -371,6 +371,15 @@ final class AhScanner {
 
 	// ------------------------------------------------------------------ item_bytes → our price key (same rules as market/items.py)
 	static void identify(String b64, String[] key, int[] count) throws IOException {
+		identify(b64, key, count, null);
+	}
+
+	/**
+	 * Same as {@link #identify(String, String[], int[])}; when {@code variant} is given, variant[0] is set to the
+	 * upgrades that change what this copy is worth (stars, recomb, potato books, valuable enchants, gems,
+	 * attributes, skin/dye, scrolls). Two listings are only comparable when their variants match.
+	 */
+	static void identify(String b64, String[] key, int[] count, String[] variant) throws IOException {
 		byte[] raw = Base64.getDecoder().decode(b64);
 		Object root;
 		try (DataInputStream in = new DataInputStream(new GZIPInputStream(new ByteArrayInputStream(raw)))) {
@@ -385,6 +394,7 @@ final class AhScanner {
 		if (!(it.get("tag") instanceof Map<?, ?> tag) || !(tag.get("ExtraAttributes") instanceof Map<?, ?> ea)) return;
 		if (!(ea.get("id") instanceof String id) || id.isEmpty()) return;
 		key[0] = id;
+		if (variant != null) variant[0] = variant(ea);
 		if (id.equals("ENCHANTED_BOOK") && ea.get("enchantments") instanceof Map<?, ?> en && en.size() == 1) {
 			Map.Entry<?, ?> e = en.entrySet().iterator().next();
 			key[0] = "ENCHANTMENT_" + e.getKey().toString().toUpperCase(Locale.ROOT) + "_" + ((Number) e.getValue()).intValue();
@@ -399,6 +409,51 @@ final class AhScanner {
 				key[0] = "PET";
 			}
 		}
+	}
+
+	/**
+	 * Pure: what makes this copy different from a plain one, as a stable string ("" = plain). Kept coarse on purpose:
+	 * low enchant levels (I–V, which anyone can apply from the table) and the potato-book count within 1–10 don't split
+	 * listings, everything that costs real coins does.
+	 */
+	static String variant(Map<?, ?> ea) {
+		java.util.TreeMap<String, String> v = new java.util.TreeMap<>();
+		int stars = intOf(ea.get("upgrade_level"));
+		if (stars == 0) stars = intOf(ea.get("dungeon_item_level"));
+		if (stars > 0) v.put("stars", String.valueOf(stars));
+		if (intOf(ea.get("rarity_upgrades")) > 0) v.put("recomb", "1");
+		int hpb = intOf(ea.get("hot_potato_count"));
+		if (hpb > 0) v.put("hpb", hpb > 10 ? String.valueOf(hpb) : "10");
+		// the reforge is left out: almost every copy has one and most cost little; the clearing floor covers the rest
+		if (ea.get("enchantments") instanceof Map<?, ?> en) {
+			java.util.TreeMap<String, Integer> big = new java.util.TreeMap<>();
+			for (Map.Entry<?, ?> e : en.entrySet()) {
+				String k = e.getKey().toString().toLowerCase(Locale.ROOT);
+				int lvl = intOf(e.getValue());
+				if (k.startsWith("ultimate_") || lvl >= 6) big.put(k, lvl);
+			}
+			if (!big.isEmpty()) v.put("ench", big.toString());
+		}
+		if (ea.get("attributes") instanceof Map<?, ?> at && !at.isEmpty()) v.put("attr", new java.util.TreeMap<>(at).toString());
+		if (ea.get("gems") instanceof Map<?, ?> g) {
+			int n = 0;
+			for (Map.Entry<?, ?> e : g.entrySet()) {
+				String k = e.getKey().toString();
+				if (!k.equals("unlocked_slots") && !k.endsWith("_gem")) n++;
+			}
+			if (n > 0) v.put("gems", String.valueOf(n));
+		}
+		for (String k : new String[] {"skin", "dye_item", "ability_scroll", "ethermerge", "power_ability_scroll", "art_of_war_count",
+				"talisman_enrichment", "mana_disintegrator_count", "polarvoid", "wood_singularity_count", "drill_part_engine",
+				"drill_part_fuel_tank", "drill_part_upgrade_module", "rod_part", "line", "hook", "sinker", "boosters"}) {
+			Object o = ea.get(k);
+			if (o != null) v.put(k, String.valueOf(o));
+		}
+		return v.isEmpty() ? "" : v.toString();
+	}
+
+	private static int intOf(Object o) {
+		return o instanceof Number n ? n.intValue() : 0;
 	}
 
 	private static Object readPayload(DataInputStream in, int type) throws IOException {

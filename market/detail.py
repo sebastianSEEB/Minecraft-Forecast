@@ -150,6 +150,7 @@ def _slim_forecast(f: dict | None) -> dict | None:
         return {"available": False, "hours_of_data": (f or {}).get("hours_of_data", 0),
                 "needs_hours": (f or {}).get("needs_hours", 12)}
     return {"available": True, "last": r4(f["last_value"]), "biased": f["biased"], "basis": f.get("basis"),
+            "pattern": round_all(f.get("pattern")),
             "h": {h: {"model": v["model"], "f": r4(v["forecast"]), "lo": r4(v["range"][0]), "hi": r4(v["range"][1]),
                       "mad": r4(v["accuracy"]["mad"]), "mape": r4(v["accuracy"]["mape"]),
                       "mfe": r4(v["accuracy"]["mfe"]), "ts": r4(v["accuracy"]["tracking_signal"]),

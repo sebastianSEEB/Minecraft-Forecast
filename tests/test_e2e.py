@@ -70,6 +70,10 @@ assert ("ENCHANTED_DIAMOND", "daily") in found, found
 assert not any(k == "ENCHANTED_COAL" for k, _ in found), found
 hp = [r["hours_to_peak"] for r in seas["rows"]]
 assert hp == sorted(hp)
+fcs = get("/forecasts")
+print("FORECASTS", len(fcs["items"]), "items;", json.dumps(fcs["items"].get("BOOSTER_COOKIE"))[:300])
+fc = fcs["items"]["BOOSTER_COOKIE"]["buy"]
+assert len(fc["f"]) == 3 and fc["last"] > 0 and fc["rnd"] in ("low", "medium", "high"), fc
 doc = get("/itemdata/BOOSTER_COOKIE")
 assert doc["stats"]["30d"]["buy"]["avg"] and len(doc["daily"]["buy"]) >= 30, doc["stats"]
 lb = get("/lbin?keys=HYPERION,ASPECT_OF_THE_END,NOPE")

@@ -230,6 +230,52 @@ final class DataClient {
 		return bazaar;
 	}
 
+	private volatile Map<String, Map<String, Forecasts.Side>> forecasts = Map.of();
+	private volatile long forecastsAt, forecastsGenerated;
+	private volatile boolean forecastsLoading;
+
+	/**
+	 * Every item's 1h/6h/24h forecast (see {@link Forecasts}): local collector /forecasts, else {dataUrl}/forecasts.json.
+	 * Refreshed every 10 min, so new items appear as your collector gathers enough hours. Empty until loaded.
+	 */
+	Map<String, Map<String, Forecasts.Side>> forecasts() {
+		long now = System.currentTimeMillis();
+		if (!forecastsLoading && now - forecastsAt > (forecasts.isEmpty() ? 60_000L : 600_000L)) {
+			forecastsLoading = true;
+			forecastsAt = now;
+			CompletableFuture<JsonObject> local = (cfg.localServer == null || cfg.localServer.isBlank())
+					? CompletableFuture.completedFuture(null)
+					: getJson(cfg.localServer + "/forecasts", 5).handle((j, e) -> e != null || j == null || !j.has("items") ? null : j);
+			local.thenCompose(j -> j != null || cfg.dataUrl == null || cfg.dataUrl.isBlank() ? CompletableFuture.completedFuture(j)
+							: getJson(cfg.dataUrl + "/forecasts.json", 20).handle((r, e) -> e != null ? null : r))
+					.whenComplete((j, e) -> {
+						try {
+							if (j != null) {
+								Map<String, Map<String, Forecasts.Side>> m = Forecasts.parse(j);
+								if (!m.isEmpty()) forecasts = m;
+								forecastsGenerated = j.has("generated") ? j.get("generated").getAsLong() : 0;
+							}
+						} catch (RuntimeException ignored) {
+							// keep the old ones
+						} finally {
+							forecastsLoading = false;
+						}
+					});
+		}
+		return forecasts;
+	}
+
+	/** One series' forecast ("buy"/"sell" for bazaar, "main" for AH), or null. */
+	Forecasts.Side forecast(String key, String side) {
+		Map<String, Forecasts.Side> m = key == null ? null : forecasts().get(key);
+		return m == null ? null : m.get(side);
+	}
+
+	/** When the loaded forecasts were made (0 = none). */
+	long forecastsGenerated() {
+		return forecastsGenerated;
+	}
+
 	private volatile JsonObject craft;
 	private volatile long craftAt;
 

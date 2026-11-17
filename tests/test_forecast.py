@@ -94,6 +94,33 @@ def test_long_horizon_not_fooled_by_daily_wave():
     close(r.forecasts[24], target, 15)
 
 
+def test_pattern_picks_the_method_family():
+    """Demand-pattern slide: trend → trend models allowed; pure randomness → level models with low α."""
+    import random
+    from market.forecast import diagnose, _models
+    trend = [100 + 2 * t for t in range(60)]
+    p = diagnose(trend)
+    assert p.trend and p.slope_pct_per_h > 0, p
+    rnd = random.Random(7)
+    noisy = [1000 * (1 + 0.05 * rnd.uniform(-1, 1)) for _ in range(120)]
+    q = diagnose(noisy)
+    assert not q.trend and q.randomness == "high" and max(q.alphas) <= 0.3, q
+    names = [m.name for m in _models(noisy, q)]
+    assert not any("Holt" in n or "regression" in n for n in names), names
+    calm = [1000 + (0.5 if t % 2 else -0.5) for t in range(80)]
+    assert diagnose(calm).randomness == "low"
+    r = forecast(noisy, [t % 24 for t in range(len(noisy))])
+    assert r.pattern and not r.pattern.trend and "level" in r.pattern.method
+    assert "Holt" not in r.model and "regression" not in r.model, r.model
+
+
+def test_biased_model_is_passed_over():
+    """A model with |tracking signal| over the limit loses to the next one that isn't biased."""
+    D = [100 + 2 * t for t in range(60)]
+    r = forecast(D, [t % 24 for t in range(60)], ts_limit=0.5)
+    assert abs(r.horizons[1].acc.tracking_signal) <= 0.5 or r.biased
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

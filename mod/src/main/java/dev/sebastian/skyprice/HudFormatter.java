@@ -198,6 +198,10 @@ final class HudFormatter {
 					"+" + fmt(f.totalProfit()), GREEN, " in ~" + Market.dur(f.roundHours()) + " (fills " + Market.dur(f.fillHours())
 							+ ", sells " + Market.dur(f.sellHours()) + ") ≈ +" + fmt(f.profitPerHour()) + "/h", GRAY));
 		}
+		if (f.forecast() != 0) {
+			out.add(line(String.format(Locale.ROOT, "    forecast: sell price %s%.1f%% by the time it sells → offer ≈ %s (counted)",
+					f.forecast() > 0 ? "+" : "−", Math.abs(f.forecast()) * 100, fmt(f.offer())), f.forecast() > 0 ? GREEN : YELLOW));
+		}
 		if (!cfg.simpleMode)
 			out.add(line("    traded/h: " + fmt(f.sellFillPerHour() / Math.max(1e-9, cfg.bazaarSharePercent / 100.0)) + " insta-buys · "
 					+ fmt(f.buyFillPerHour() / Math.max(1e-9, cfg.bazaarSharePercent / 100.0)) + " insta-sells · you catch "

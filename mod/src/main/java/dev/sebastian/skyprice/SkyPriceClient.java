@@ -26,6 +26,10 @@ import net.minecraft.network.chat.Component;
 public final class SkyPriceClient implements ClientModInitializer {
 	private static SkyPriceConfig config;
 	private static DataClient data;
+
+	static DataClient data() {
+		return data;
+	}
 	static CoflClient cofl;
 	private static final List<Component> LOADING = List.of(HudFormatter.line("Market: loading…", HudFormatter.GRAY));
 
@@ -286,6 +290,27 @@ public final class SkyPriceClient implements ClientModInitializer {
 									config.flipFeed = false;
 									config.save();
 									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] AH flip feed off."));
+									return 1;
+								})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("forecast").executes(ctx -> {
+									int n = data.forecasts().size();
+									long gen = data.forecastsGenerated();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Forecasts in flips: " + (config.forecastFlips ? "ON" : "OFF")
+											+ " · " + n + " items forecast" + (gen > 0 ? " (made " + Math.max(0, (System.currentTimeMillis() - gen) / 60000) + "m ago)" : "")
+											+ (n == 0 ? " · none yet: your collector needs " + 12 + "+ hours of data and a publish" : "")
+											+ " · /skyprice forecast on|off"));
+									return 1;
+								})
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("on").executes(ctx -> {
+									config.forecastFlips = true;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Forecasts ON: AH and Bazaar flips count the expected price when you sell."));
+									return 1;
+								}))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("off").executes(ctx -> {
+									config.forecastFlips = false;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Forecasts OFF: flips use live prices only."));
 									return 1;
 								})))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("erp").executes(ctx -> {

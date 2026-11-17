@@ -139,6 +139,21 @@ replaces that snapshot as soon as it publishes.
 * **Range:** σ ≈ √(π/2)·MAD ≈ 1.25·MAD (inventory formula sheet), giving forecast ± z·σ with
   z = NORM.S.INV(0.9) for the 80% range.
 * A ⚠ line appears when |tracking signal| > 4, meaning the 1h model is consistently over- or under-forecasting.
+* **Which method on what (1.21.0+)**, from the "Selecting a forecasting method" and "Demand patterns" slides. Each
+  series is diagnosed fresh every run (last 48 h), so the choice follows the data as it accumulates:
+
+  | Pattern found | Allowed models | Rule from the slides |
+  |---|---|---|
+  | < 12 h of data | none: the mod uses recent sales / lowest BIN | qualitative methods when data are scarce |
+  | randomness around a level | last period, MA, weighted MA, exponential smoothing | α by randomness: high (avg hourly move ≥ 2 %) → α 0.1–0.3, medium → 0.2–0.7, low (< 0.5 %) → 0.5–0.9 |
+  | trend (slope \|t\| ≥ 2 and ≥ 1 % over the window) | the above + Holt's adjusted ES + time-series regression | trend models only where a trend exists (else they extrapolate noise) |
+  | hour-of-day seasonality | best model × seasonal index | 4-step procedure, kept only if it cuts MAD > 3 % |
+  | any model with \|TS\| > 4 | skipped for the next-lowest-MAD model | "flag a poor model and search for a better one" |
+
+  Lowest MAD within the allowed family wins, per horizon (1h / 6h / 24h).
+* **Every item with enough data is forecast** (`forecast_all`, default on), not only the 600 most active: the set grows
+  as the collector runs. All forecasts go into one small file, `data/forecasts.json` (local: `GET /forecasts`), that
+  the mod's flip lists read every 10 min.
 
 `tests/test_forecast.py` checks the formulas against the worked examples in the slides
 (Tables 9.3–9.4, Examples 9.1, 9.2, 9.3, 9.4 and 9.7).
@@ -265,8 +280,23 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
   vs its 7-day level, listings far above sales) blocks the flip banner.
 - **Simple mode** (default): tooltips show only what to do. **Pro** (footer chip or `/skyprice mode pro`): every number.
 - **Alerts with a ping**: item sold, outbid, bazaar order filled / outbid / undercut, the best new AH flips (max 3 per scan).
-- Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`.
+- Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`, `/skyprice forecast on|off`.
 - Nothing is automated: the mod only shows, opens what you click and copies prices. You buy, bid, list and claim yourself.
+
+### Flips with forecasts + identical copies only (mod 1.21.0+)
+
+- **AH market flips compare identical copies only**: same stars, recomb, potato books (fuming counted), big enchants
+  (level VI+ and ultimates), gems, attributes, skin/dye, scrolls. A plain copy next to upgraded ones is no longer a "gap".
+- **Resale is capped at what the cheapest copies really sold for** (median of each period's lowest sale over 3 days,
+  SkyCofl). Other listings' asking prices can sit far above that and never sell — that's what made a 7M Mantid
+  Boots look like +2.8M.
+- **Forecasts in both flip lists** (FC chip in the FLIP footer, `/skyprice forecast on|off`, `/skyprice forecast` for
+  status). AH: the resale is moved by the forecast at the time it should sell. Bazaar: the sell offer is moved by the
+  forecast of the instant-buy price at fill + half the selling time; the list re-ranks on it. A fall counts fully, a rise
+  only beyond the model's typical error (MAPE), a biased model (|TS| > 4) counts nothing, and nothing goes above
+  copies already listed. Rows show `fc −3%` when it changed something; the bazaar tooltip says by how much.
+- Forecasts come from **your collector** (run.py: local `/forecasts`, else the published `forecasts.json`). With no
+  collector data yet the flips work exactly as before.
 
 ### Pets priced by level + rarity (mod 1.20.0+)
 

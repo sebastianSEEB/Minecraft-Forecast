@@ -79,6 +79,8 @@ final class SkyPriceConfig {
 
 	boolean showHistory = true;      // 7d / 30d / all-time lines
 	boolean showForecast = true;
+	/** Use your collector's price forecasts in the AH and Bazaar flip lists (FC chip in the FLIP panel, /skyprice forecast on|off). */
+	boolean forecastFlips = true;
 	boolean showSeasons = true;
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();

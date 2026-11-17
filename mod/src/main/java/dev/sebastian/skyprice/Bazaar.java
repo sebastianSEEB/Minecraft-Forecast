@@ -13,6 +13,9 @@ import java.util.Map;
  *   sized by volume: your buy order fills from instant sells, your offer from instant buys (bazaarSharePercent of each),
  *   as many as fit one round of bazaarRoundHours and your budget → total profit, round time, profit per hour.
  *
+ * With forecasting on, the sell offer's price is moved by your collector's forecast for the time it sells (see
+ * {@link Forecasts}), so a product that's about to drop ranks lower and one that's rising (beyond normal error) higher.
+ *
  * Skipped: margins under 2 % or over 100 % (thin or manipulated), fewer than 10 units traded per hour, products
  * whose buy order alone costs more than your budget. Also turns a display name ("Enchanted Diamond") back into the
  * product id for the Bazaar menus and your orders.
@@ -24,6 +27,9 @@ final class Bazaar {
 	private static volatile Map<String, String> prettyNames = Map.of();
 	private static volatile int prettyFor = -1;
 
+	private static volatile DataClient data;
+	private static volatile boolean forecastOn;
+
 	private Bazaar() {}
 
 	/**
@@ -32,7 +38,12 @@ final class Bazaar {
 	 */
 	static List<Market.BzFlip> ranking(SkyPriceConfig cfg, DataClient data, double budget) {
 		long now = System.currentTimeMillis();
+		Bazaar.data = data;
 		Map<String, DataClient.Live> all = data.bazaarAll();
+		if (forecastOn != cfg.forecastFlips) {                    // toggled: re-rank now
+			forecastOn = cfg.forecastFlips;
+			rankedAt = 0;
+		}
 		boolean budgetMoved = rankedBudget <= 0 || Math.abs(rankedBudget - budget) > rankedBudget * 0.10;
 		if (!ranked.isEmpty() && !budgetMoved && now - rankedAt < Math.max(1, cfg.bazaarRefreshMinutes) * 60_000L) return ranked;
 		if (all.isEmpty()) return ranked;
@@ -69,8 +80,10 @@ final class Bazaar {
 
 	/** Volume-sized flip for one product with your settings. */
 	static Market.BzFlip flip(SkyPriceConfig cfg, String id, DataClient.Live l, double budget) {
+		DataClient dc = data != null ? data : SkyPriceClient.data();
+		Forecasts.Side fc = cfg.forecastFlips && dc != null ? dc.forecast(id, "buy") : null;
 		return Market.bazaarFlip(id, l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), l.orders(), cfg.bazaarTaxPercent,
-				cfg.bazaarSharePercent / 100.0, budget, Math.max(0.25, cfg.bazaarRoundHours));
+				cfg.bazaarSharePercent / 100.0, budget, Math.max(0.25, cfg.bazaarRoundHours), fc);
 	}
 
 	/** "Enchanted Diamond" (any colour codes, "64x " prefixes, "BUY "/"SELL " prefixes) → ENCHANTED_DIAMOND, or null. */
