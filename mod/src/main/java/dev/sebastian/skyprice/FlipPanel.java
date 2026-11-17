@@ -300,7 +300,8 @@ final class FlipPanel {
 		List<Market.BzFlip> list = Bazaar.ranking(cfg, data, budget());
 		double[] today = ProfitLog.marketTotal(ProfitLog.startOfDay(0), "BZ");
 		long age = Bazaar.snapshotAt() > 0 ? (System.currentTimeMillis() - Bazaar.snapshotAt()) / 60000 : -1;
-		String right = (age >= 0 ? "upd " + age + "m" : "") + (today[1] > 0 ? " · today " + (today[0] >= 0 ? "+" : "") + HudFormatter.fmt(today[0]) : "");
+		long secs = Bazaar.snapshotAt() > 0 ? (System.currentTimeMillis() - Bazaar.snapshotAt()) / 1000 : -1;
+		String right = (secs >= 0 ? (cfg.bazaarRefreshMinutes <= 0 ? "live " + secs + "s" : "upd " + age + "m") : "") + (today[1] > 0 ? " · today " + (today[0] >= 0 ? "+" : "") + HudFormatter.fmt(today[0]) : "");
 		section(p, x, y, w, "Best flips", right.trim());
 		y += 11;
 		if (list.isEmpty()) {
@@ -312,7 +313,7 @@ final class FlipPanel {
 			String name = Bazaar.name(f.id(), data);
 			String detail = String.format(Locale.ROOT, "%s× %s→%s · +%s · %s", HudFormatter.fmt((double) f.qty()),
 					HudFormatter.fmt(f.order()), HudFormatter.fmt(f.offer()), HudFormatter.fmt(f.totalProfit()), Market.dur(f.roundHours()))
-					+ Forecasts.tag(f.forecast());
+					+ Forecasts.tag(f.forecast(), f.adjSource());
 			row(p, x, y, w, name, "+" + HudFormatter.fmt(f.profitPerHour()) + "/h", GOOD, detail, () -> copyBazaar(f, name));
 			y += R2;
 		}

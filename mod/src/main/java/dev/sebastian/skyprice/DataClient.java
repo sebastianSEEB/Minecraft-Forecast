@@ -9,6 +9,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -182,6 +184,14 @@ final class DataClient {
 	}
 
 	/** Completes with the parsed object, null on 404, exceptionally on network errors. */
+	/** Like getJson but returns any JSON (arrays too); null on 404, exception on other errors. */
+	private CompletableFuture<JsonElement> getJson2(String url, int timeoutSeconds) {
+		HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(timeoutSeconds))
+				.header("User-Agent", "SkyPrice-HUD/1.0").GET().build();
+		return http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).thenApply(resp ->
+				resp.statusCode() == 200 ? JsonParser.parseString(resp.body()) : null);
+	}
+
 	private CompletableFuture<JsonObject> getJson(String url, int timeoutSeconds) {
 		HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(timeoutSeconds))
 				.header("User-Agent", "SkyPrice-HUD/1.0").GET().build();
@@ -222,6 +232,60 @@ final class DataClient {
 
 	private static double d(JsonObject o, String k) {
 		return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsDouble() : 0;
+	}
+
+	/** When the bazaar snapshot was last fetched (the live flip list re-ranks on every new one). */
+	long bazaarAt() {
+		return bazaarFetchedAt;
+	}
+
+	private final Map<String, double[]> slides = new java.util.concurrent.ConcurrentHashMap<>();   // id → {per hour, fetched at}
+	private final java.util.Deque<String> slideQueue = new java.util.concurrent.ConcurrentLinkedDeque<>();
+	private volatile long slideSentAt;
+
+	/**
+	 * 7-day trend of a product's instant-buy price, as a fraction per hour (regression of log price on time over
+	 * SkyCofl's week history), or NaN while unknown. Fetched lazily, one product per second, cached 30 min.
+	 */
+	double bazaarSlide(String id) {
+		double[] v = slides.get(id);
+		long now = System.currentTimeMillis();
+		if ((v == null || now - (long) v[1] > 1_800_000L) && !slideQueue.contains(id)) slideQueue.add(id);
+		if (now - slideSentAt > 1000 && !slideQueue.isEmpty()) {
+			String next = slideQueue.poll();
+			slideSentAt = now;
+			getJson2("https://sky.coflnet.com/api/bazaar/" + next + "/history/week", 15).whenComplete((arr, e) -> {
+				double slope = Double.NaN;
+				if (arr != null && arr.isJsonArray()) slope = slope(arr.getAsJsonArray());
+				slides.put(next, new double[]{slope, System.currentTimeMillis()});
+			});
+		}
+		return v == null ? Double.NaN : v[0];
+	}
+
+	/** Pure: least-squares slope of ln(buy) per hour over SkyCofl history points ({timestamp, buy, …}). */
+	static double slope(com.google.gson.JsonArray arr) {
+		List<double[]> pts = new ArrayList<>();
+		for (JsonElement e : arr) {
+			try {
+				JsonObject o = e.getAsJsonObject();
+				double b = o.get("buy").getAsDouble();
+				if (b <= 0) continue;
+				double t = java.time.LocalDateTime.parse(o.get("timestamp").getAsString().replace("Z", ""))
+						.toEpochSecond(java.time.ZoneOffset.UTC) / 3600.0;
+				pts.add(new double[]{t, Math.log(b)});
+			} catch (RuntimeException ignored) {
+				// skip
+			}
+		}
+		if (pts.size() < 12) return Double.NaN;
+		double mx = 0, my = 0;
+		for (double[] q : pts) { mx += q[0]; my += q[1]; }
+		mx /= pts.size();
+		my /= pts.size();
+		double sxy = 0, sxx = 0;
+		for (double[] q : pts) { sxy += (q[0] - mx) * (q[1] - my); sxx += (q[0] - mx) * (q[0] - mx); }
+		return sxx > 0 ? sxy / sxx : Double.NaN;
 	}
 
 	/** Every bazaar product (refreshes like live()). Empty until the first fetch. */

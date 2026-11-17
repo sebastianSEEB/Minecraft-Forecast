@@ -76,6 +76,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		ProfitLog.init(config);
 		BzOrders.init(config, data);
 		FlipFeed.init(config);
+		Sniper.init(config);
 		FlipPanel.init(config, data);
 		SignFill.init(config, data);
 		PriceChart.init(config);
@@ -290,6 +291,26 @@ public final class SkyPriceClient implements ClientModInitializer {
 									config.flipFeed = false;
 									config.save();
 									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] AH flip feed off."));
+									return 1;
+								})))
+						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("snipe").executes(ctx -> {
+									if (Sniper.latest() == null) {
+										ctx.getSource().sendFeedback(Component.literal("[SkyPrice] No undervalued BIN alert yet."
+												+ (config.sniper ? " Watching the AH." : " Alerts are off: /skyprice snipe on")));
+									} else Sniper.openLatest();
+									return 1;
+								})
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("on").executes(ctx -> {
+									config.sniper = true;
+									config.flipFeed = true;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Undervalued-BIN alerts on."));
+									return 1;
+								}))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("off").executes(ctx -> {
+									config.sniper = false;
+									config.save();
+									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Undervalued-BIN alerts off."));
 									return 1;
 								})))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("signals").executes(ctx -> {

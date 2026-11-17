@@ -105,12 +105,18 @@ final class Market {
 	 */
 	record BzFlip(String id, double order, double offer, double perUnit, double pct, double buyFillPerHour, double sellFillPerHour,
 			long qty, double fillHours, double sellHours, double totalProfit, double profitPerHour, int competition,
-			double marketPerHour, double forecast) {
+			double marketPerHour, double forecast, int offers, String adjSource) {
 		BzFlip(String id, double order, double offer, double perUnit, double pct, double buyFillPerHour, double sellFillPerHour,
 				long qty, double fillHours, double sellHours, double totalProfit, double profitPerHour, int competition,
 				double marketPerHour) {
 			this(id, order, offer, perUnit, pct, buyFillPerHour, sellFillPerHour, qty, fillHours, sellHours, totalProfit,
-					profitPerHour, competition, marketPerHour, 0);
+					profitPerHour, competition, marketPerHour, 0, 0, "");
+		}
+
+		/** How evenly the two sides trade: slower side ÷ faster side (1 = both fill equally fast). */
+		double balance() {
+			double a = buyFillPerHour, b = sellFillPerHour;
+			return a <= 0 || b <= 0 ? 0 : Math.min(a, b) / Math.max(a, b);
 		}
 
 		double unitsPerHour() {
@@ -158,20 +164,50 @@ final class Market {
 	 */
 	static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders,
 			double taxPct, double share, double budget, double roundHours, Forecasts.Side exitForecast) {
-		BzFlip now = bazaarFlip(id, instaBuy, instaSell, buyWeek, sellWeek, orders, taxPct, share, budget, roundHours, 0);
-		if (now == null || exitForecast == null || now.qty() < 1) return now;
-		double fc = Forecasts.counted(exitForecast, now.fillHours() + now.sellHours() / 2);   // average unit sells mid-way
-		return fc == 0 ? now : bazaarFlip(id, instaBuy, instaSell, buyWeek, sellWeek, orders, taxPct, share, budget, roundHours, fc);
+		return bazaarFlip(id, instaBuy, instaSell, buyWeek, sellWeek, orders, 0, taxPct, share, budget, roundHours, exitForecast, 0);
+	}
+
+	/**
+	 * Full version used by the live flip list.
+	 * Competition: you only catch your share of the flow when few others sit on the same side; with N competing orders
+	 * (offers) your share is at most 2 / (2 + N) of it (6 offers → 25 %, 115 → 1.7 %), never above `share`.
+	 * Price move by the time it sells (fill + half the selling time): your collector's forecast when there is one,
+	 * else the product's 7-day slide (SkyCofl) when it's falling — a rising trend isn't counted.
+	 * @param offers        competing sell offers (quick_status sellOrders); 0 = unknown
+	 * @param slidePerHour  7-day trend of the instant-buy price, fraction per hour (−0.001 = −2.4 %/day)
+	 */
+	static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders, int offers,
+			double taxPct, double share, double budget, double roundHours, Forecasts.Side exitForecast, double slidePerHour) {
+		double buyShare = orders > 0 ? Math.min(share, 2.0 / (2 + orders)) : share;
+		double sellShare = offers > 0 ? Math.min(share, 2.0 / (2 + offers)) : share;
+		BzFlip now = core(id, instaBuy, instaSell, buyWeek, sellWeek, orders, offers, taxPct, buyShare, sellShare, budget, roundHours, 0, "");
+		if (now == null || now.qty() < 1) return now;
+		double t = now.fillHours() + now.sellHours() / 2;                    // average unit sells mid-way
+		double adj = 0;
+		String src = "";
+		if (exitForecast != null) {
+			adj = Forecasts.counted(exitForecast, t);
+			src = adj != 0 ? "fc" : "";
+		} else if (slidePerHour < 0) {
+			adj = Math.max(-0.5, slidePerHour * t);
+			src = adj < 0 ? "trend" : "";
+		}
+		return adj == 0 ? now : core(id, instaBuy, instaSell, buyWeek, sellWeek, orders, offers, taxPct, buyShare, sellShare, budget, roundHours, adj, src);
 	}
 
 	private static BzFlip bazaarFlip(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders,
 			double taxPct, double share, double budget, double roundHours, double fc) {
+		return core(id, instaBuy, instaSell, buyWeek, sellWeek, orders, 0, taxPct, share, share, budget, roundHours, fc, fc != 0 ? "fc" : "");
+	}
+
+	private static BzFlip core(String id, double instaBuy, double instaSell, double buyWeek, double sellWeek, int orders, int offers,
+			double taxPct, double buyShare, double sellShare, double budget, double roundHours, double fc, String src) {
 		if (instaBuy <= 0 || instaSell <= 0) return null;
 		double order = instaSell + 0.1, offer = (instaBuy - 0.1) * (1 + fc);
 		double perUnit = offer * (1 - taxPct / 100.0) - order;
 		double pct = perUnit / order;
-		double buyFill = sellWeek / 168.0 * share;                // your buy order fills from instant sells
-		double sellFill = buyWeek / 168.0 * share;                // your sell offer sells to instant buys
+		double buyFill = sellWeek / 168.0 * buyShare;             // your buy order fills from instant sells
+		double sellFill = buyWeek / 168.0 * sellShare;            // your sell offer sells to instant buys
 		double market = Math.min(buyWeek, sellWeek) / 168.0;
 		long qty = 0;
 		double fillH = Double.POSITIVE_INFINITY, sellH = Double.POSITIVE_INFINITY, total = 0, perHour = 0;
@@ -187,7 +223,8 @@ final class Market {
 				perHour = total / Math.max(0.25, fillH + sellH);
 			}
 		}
-		return new BzFlip(id, order, offer, perUnit, pct, buyFill, sellFill, qty, fillH, sellH, total, Math.max(0, perHour), orders, market, fc);
+		return new BzFlip(id, order, offer, perUnit, pct, buyFill, sellFill, qty, fillH, sellH, total, Math.max(0, perHour), orders, market, fc,
+				offers, src);
 	}
 
 	/** "12m", "1.5h", "3d" */

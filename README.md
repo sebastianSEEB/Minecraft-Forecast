@@ -280,7 +280,7 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
   vs its 7-day level, listings far above sales) blocks the flip banner.
 - **Simple mode** (default): tooltips show only what to do. **Pro** (footer chip or `/skyprice mode pro`): every number.
 - **Alerts with a ping**: item sold, outbid, bazaar order filled / outbid / undercut, the best new AH flips (max 3 per scan).
-- Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`, `/skyprice forecast on|off`, `/skyprice signals`.
+- Commands: `/skyprice flips`, `/skyprice flip <n>`, `/skyprice bzflips`, `/skyprice profit`, `/skyprice feed on|off`, `/skyprice forecast on|off`, `/skyprice signals`, `/skyprice snipe [on|off]`.
 - Nothing is automated: the mod only shows, opens what you click and copies prices. You buy, bid, list and claim yourself.
 
 ### Flips with forecasts + identical copies only (mod 1.21.0+)
@@ -297,6 +297,26 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
   copies already listed. Rows show `fc −3%` when it changed something; the bazaar tooltip says by how much.
 - Forecasts come from **your collector** (run.py: local `/forecasts`, else the published `forecasts.json`). With no
   collector data yet the flips work exactly as before.
+
+### Undervalued-BIN alert + live bazaar flipper (mod 1.23.0+)
+
+- **⚡ Undervalued BIN banner** at the top of the screen, with a ping and a chat line, when a BIN is listed clearly under
+  the market. Hypixel publishes the auction list about once a minute; the mod watches for that update and checks only the
+  new listings, so the alert comes seconds after Hypixel publishes (within ~1 min of the listing — the API's limit).
+  Same rules as the market flips: identical copies only (≥ 3 listed at the last full scan), ≥ `snipeMinPercent` (8 %)
+  under the cheapest one, resale capped at fair value and the recent clearing price, profit after fees
+  ≥ `minFlipProfitCoins` and ≥ 5 %, no manipulation flag, fits your purse (no sales history yet → double margin).
+  Pets and enchanted books are skipped. `/skyprice snipe` opens the latest one (in a menu: click the banner);
+  `/skyprice snipe on|off`. Nothing is bought for you.
+- **Bazaar flips are live**: re-ranked on every bazaar update (every 20 s; `bazaarRefreshMinutes` > 0 brings back the
+  snapshot), header shows "live Ns". Only products that **buy and sell fast** are listed: after competition both sides
+  fill ≥ 10 units/h for you, the slower side is ≥ 1/5 of the faster, and a round fits `bazaarRoundHours`.
+- **Competition counts**: with N competing sell offers (buy orders) you catch at most 2 / (2 + N) of that side's flow
+  (6 offers → 25 %, 115 → 1.7 %), so crowded products size down and rank lower; the tooltip says when a product
+  "fills unevenly".
+- **Sliding prices count**: without a collector forecast, the 7-day trend of the instant-buy price (SkyCofl, regression of
+  log price) moves your sell price by the time it sells when it's falling (rows show `trend −3%`). Rising isn't counted.
+- Products in a market event (ERP → Signals "!") stay out of the list.
 
 ### Bazaar misprices, correlations and suggestions — ERP → Signals (mod 1.22.0+)
 

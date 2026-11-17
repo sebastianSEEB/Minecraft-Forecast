@@ -105,7 +105,7 @@ final class AhScanner {
 	}
 
 	// ------------------------------------------------------------------ scan
-	private static InputStream page(int p) throws IOException, InterruptedException {
+	static InputStream page(int p) throws IOException, InterruptedException {
 		HttpRequest req = HttpRequest.newBuilder(URI.create(API + p)).timeout(Duration.ofSeconds(20))
 				.header("Accept-Encoding", "gzip").header("User-Agent", "SkyPrice-HUD (Fabric mod)").GET().build();
 		HttpResponse<InputStream> resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream());

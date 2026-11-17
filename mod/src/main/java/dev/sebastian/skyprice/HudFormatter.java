@@ -204,13 +204,17 @@ final class HudFormatter {
 							+ ", sells " + Market.dur(f.sellHours()) + ") ≈ +" + fmt(f.profitPerHour()) + "/h", GRAY));
 		}
 		if (f.forecast() != 0) {
-			out.add(line(String.format(Locale.ROOT, "    forecast: sell price %s%.1f%% by the time it sells → offer ≈ %s (counted)",
+			out.add(line(String.format(Locale.ROOT, "    %s: sell price %s%.1f%% by the time it sells → offer ≈ %s (counted)",
+					"trend".equals(f.adjSource()) ? "sliding this week" : "forecast",
 					f.forecast() > 0 ? "+" : "−", Math.abs(f.forecast()) * 100, fmt(f.offer())), f.forecast() > 0 ? GREEN : YELLOW));
 		}
+		if (f.balance() > 0 && f.balance() < 0.35) {
+			out.add(line("    fills unevenly: " + (f.buyFillPerHour() > f.sellFillPerHour() ? "buying is fast, selling slow" : "selling is fast, buying slow")
+					+ " — keep it to the amount shown", YELLOW));
+		}
 		if (!cfg.simpleMode)
-			out.add(line("    traded/h: " + fmt(f.sellFillPerHour() / Math.max(1e-9, cfg.bazaarSharePercent / 100.0)) + " insta-buys · "
-					+ fmt(f.buyFillPerHour() / Math.max(1e-9, cfg.bazaarSharePercent / 100.0)) + " insta-sells · you catch "
-					+ (int) cfg.bazaarSharePercent + "%" + (f.competition() > 0 ? " · " + f.competition() + " buy orders" : ""), DARK));
+			out.add(line(String.format(Locale.ROOT, "    for you: buys %s/h, sells %s/h (vs %d buy orders, %d sell offers on the book)",
+					fmt(f.buyFillPerHour()), fmt(f.sellFillPerHour()), f.competition(), f.offers()), DARK));
 	}
 
 	private static void history(List<Component> out, JsonObject stats, String side) {

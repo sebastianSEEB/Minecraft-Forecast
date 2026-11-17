@@ -98,8 +98,13 @@ final class Forecasts {
 
 	/** " fc −3%" / " fc +2%" for the flip rows; "" when it changes nothing worth showing. */
 	static String tag(double counted) {
-		if (Math.abs(counted) < 0.005) return "";
-		return String.format(Locale.ROOT, " · fc %s%.0f%%", counted > 0 ? "+" : "−", Math.abs(counted) * 100);
+		return tag(counted, "fc");
+	}
+
+	/** Same with the source: "fc" (your forecast) or "trend" (the 7-day slide). */
+	static String tag(double counted, String label) {
+		if (Math.abs(counted) < 0.005 || label == null || label.isEmpty()) return "";
+		return String.format(Locale.ROOT, " · %s %s%.0f%%", label, counted > 0 ? "+" : "−", Math.abs(counted) * 100);
 	}
 
 	/** "Holt … · trend, medium randomness" for chat/tooltips. */

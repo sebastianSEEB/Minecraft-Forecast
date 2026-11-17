@@ -24,7 +24,7 @@ final class SkyPriceConfig {
 
 	int localRefreshSeconds = 30;
 	int publishedRefreshSeconds = 600;
-	int liveBazaarRefreshSeconds = 60;
+	int liveBazaarRefreshSeconds = 20;
 
 	boolean valueUpgrades = true;    // value each copy: enchants, stars, recomb (rarity), potato books, gems, pet level/rarity/item/skin
 	boolean showVerdict = true;      // "GOOD BUY / FAIR PRICE / OVERPRICED" line under the average
@@ -70,7 +70,7 @@ final class SkyPriceConfig {
 	boolean priceChart = true;        // big 7-day price chart beside the menu while you hover an auction item
 	boolean manipMarkers = true;      // red "!" on AH items that look manipulated (price spike, buyout, inflated listings)
 	boolean signFill = true;          // pre-fill the Bazaar search / amount / price signs for the flip you clicked (you press Done)
-	int bazaarRefreshMinutes = 5;     // the bazaar flip list is a snapshot, refreshed this often (prices copied on click are live)
+	int bazaarRefreshMinutes = 0;     // 0 = live (re-ranked on every bazaar update); > 0 = a snapshot refreshed this often
 	double bazaarRoundHours = 2;      // one flip round (buy order fills + sell offer sells) should take at most this long
 	double bazaarMaxSpreadPercent = 60;// wider spreads are thin / manipulated markets: never suggested
 	boolean bazaarOrderTracker = true;// read "Your Bazaar Orders" and warn when an order is outbid / undercut
@@ -107,6 +107,19 @@ final class SkyPriceConfig {
 		}
 	}
 
+	boolean sniper = true;            // banner + ping when an undervalued BIN is listed (needs flipFeed for the reference prices)
+	double snipeMinPercent = 8;       // at least this much under the cheapest identical copy
+	int cfgRev = 0;                   // settings migrations already applied
+
+	/** One-time changes to existing settings when a new version changes a default the player never chose. */
+	void migrate() {
+		if (cfgRev < 1) {                  // 1.23: live bazaar flip list
+			bazaarRefreshMinutes = 0;
+			liveBazaarRefreshSeconds = Math.min(liveBazaarRefreshSeconds, 20);
+			cfgRev = 1;
+		}
+	}
+
 	static SkyPriceConfig load() {
 		Path file = FabricLoader.getInstance().getConfigDir().resolve("skyprice.json");
 		SkyPriceConfig cfg = new SkyPriceConfig();
@@ -115,6 +128,7 @@ final class SkyPriceConfig {
 				SkyPriceConfig read = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), SkyPriceConfig.class);
 				if (read != null) cfg = read;
 			}
+			cfg.migrate();
 			Files.writeString(file, GSON.toJson(cfg), StandardCharsets.UTF_8);
 		} catch (IOException | RuntimeException e) {
 			System.err.println("[SkyPrice] could not read config, using defaults: " + e);

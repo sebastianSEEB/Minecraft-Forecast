@@ -44,7 +44,18 @@ final class BidHelper {
 		cfg = config;
 		ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
 			current = screen;
+			ScreenEvents.remove(screen).register(s -> {
+				if (current == s) current = null;                   // closed: back in game (the snipe banner moves to the HUD)
+			});
 			SignFill.signOpened(screen);
+			RenderHook.register(screen, (s, painter) -> {
+				try {
+					Sniper.paint(painter, s.width);                    // undervalued-BIN banner, on top of any menu
+				} catch (RuntimeException e) {
+					System.err.println("[SkyPrice] snipe banner: " + e);
+				}
+			});
+			ScreenMouseEvents.allowMouseClick(screen).register((s, event) -> !Sniper.click(event.x(), event.y()));
 			if (!(screen instanceof AbstractContainerScreen<?>)) return;
 			SignFill.containerOpened(screen);
 			RenderHook.register(screen, (s, painter) -> {

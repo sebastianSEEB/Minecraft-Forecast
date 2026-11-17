@@ -34,8 +34,10 @@ final class Bazaar {
 	private Bazaar() {}
 
 	/**
-	 * Best bazaar flips for this budget, best profit/hour first. A snapshot refreshed every bazaarRefreshMinutes (or when
-	 * your budget changes by more than 10 %), so the list doesn't jump around while you're placing orders.
+	 * Best bazaar flips for this budget, best profit/hour first. Live: re-ranked on every new bazaar snapshot (every
+	 * liveBazaarRefreshSeconds), or every bazaarRefreshMinutes when that's set above 0, or when your budget changes > 10 %.
+	 * Only products that buy AND sell fast make it: both sides must fill at ≥ 10 units/h for you after competition, the
+	 * slower side must be at least 1/5 of the faster one, and a full round must fit in bazaarRoundHours.
 	 */
 	static List<Market.BzFlip> ranking(SkyPriceConfig cfg, DataClient data, double budget) {
 		long now = System.currentTimeMillis();
@@ -46,7 +48,8 @@ final class Bazaar {
 			rankedAt = 0;
 		}
 		boolean budgetMoved = rankedBudget <= 0 || Math.abs(rankedBudget - budget) > rankedBudget * 0.10;
-		if (!ranked.isEmpty() && !budgetMoved && now - rankedAt < Math.max(1, cfg.bazaarRefreshMinutes) * 60_000L) return ranked;
+		boolean fresh = cfg.bazaarRefreshMinutes <= 0 ? data.bazaarAt() <= rankedAt : now - rankedAt < cfg.bazaarRefreshMinutes * 60_000L;
+		if (!ranked.isEmpty() && !budgetMoved && fresh) return ranked;
 		if (all.isEmpty()) return ranked;
 		List<Market.BzFlip> out = new ArrayList<>();
 		java.util.Set<String> event = eventMembers(data.bzSignals());
@@ -56,9 +59,12 @@ final class Bazaar {
 			Market.BzFlip f = flip(cfg, e.getKey(), l, budget);
 			if (f == null || f.perUnit() <= 0 || f.pct() < 0.02 || f.pct() > cfg.bazaarMaxSpreadPercent / 100.0) continue;
 			if (f.unitsPerHour() < 10 || f.qty() < 1 || f.totalProfit() < 1000) continue;
+			if (Math.min(f.buyFillPerHour(), f.sellFillPerHour()) < 10 || f.balance() < 0.2) continue;   // must buy AND sell fast
+			if (f.roundHours() > Math.max(0.25, cfg.bazaarRoundHours) * 1.05) continue;
 			out.add(f);
 		}
 		out.sort((a, b) -> Double.compare(b.coinsPerHour(), a.coinsPerHour()));
+		for (int i = 0; i < Math.min(25, out.size()); i++) data.bazaarSlide(out.get(i).id());   // queue 7-day trends for the top
 		ranked = out.size() > 50 ? new ArrayList<>(out.subList(0, 50)) : out;
 		Map<String, Integer> r = new HashMap<>();
 		for (int i = 0; i < ranked.size(); i++) r.put(ranked.get(i).id(), i + 1);
@@ -97,8 +103,9 @@ final class Bazaar {
 	static Market.BzFlip flip(SkyPriceConfig cfg, String id, DataClient.Live l, double budget) {
 		DataClient dc = data != null ? data : SkyPriceClient.data();
 		Forecasts.Side fc = cfg.forecastFlips && dc != null ? dc.forecast(id, "buy") : null;
-		return Market.bazaarFlip(id, l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), l.orders(), cfg.bazaarTaxPercent,
-				cfg.bazaarSharePercent / 100.0, budget, Math.max(0.25, cfg.bazaarRoundHours), fc);
+		double slide = cfg.forecastFlips && dc != null ? dc.bazaarSlide(id) : Double.NaN;
+		return Market.bazaarFlip(id, l.buy(), l.sell(), l.buyWeek(), l.sellWeek(), l.orders(), l.offers(), cfg.bazaarTaxPercent,
+				cfg.bazaarSharePercent / 100.0, budget, Math.max(0.25, cfg.bazaarRoundHours), fc, Double.isNaN(slide) ? 0 : slide);
 	}
 
 	/** "Enchanted Diamond" (any colour codes, "64x " prefixes, "BUY "/"SELL " prefixes) → ENCHANTED_DIAMOND, or null. */

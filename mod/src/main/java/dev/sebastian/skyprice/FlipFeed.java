@@ -108,6 +108,15 @@ final class FlipFeed {
 
 	/** End of a scan: rank the gaps and start fetching prices for the best ones. */
 	static void finish(long ts) {
+		Map<String, double[]> refs = new HashMap<>();                 // for the undervalued-BIN alert (Sniper)
+		for (Map.Entry<String, Bucket> e : building.entrySet()) {
+			Bucket b = e.getValue();
+			if (b.n < 2) continue;
+			List<Double> next = new ArrayList<>();
+			for (int i = 1; i < Math.min(b.n, 5); i++) next.add(b.p[i]);
+			refs.put(e.getKey(), new double[]{b.p[0], Math.min(b.p[1], Market.median(next)), b.listed});
+		}
+		Sniper.setRefs(refs);
 		List<Candidate> out = new ArrayList<>();
 		for (Map.Entry<String, Bucket> e : building.entrySet()) {
 			Candidate c = candidate(e.getKey(), e.getValue(), ts);
