@@ -305,7 +305,10 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
   new listings, so the alert comes seconds after Hypixel publishes (within ~1 min of the listing — the API's limit).
   Only BINs at **half the lowest BIN or less** (1.24.0+, `snipeMinPercent` = 50) of identical copies (≥ 3 listed at the
   last full scan); resale capped at fair value and the recent clearing price, profit after fees ≥ `minFlipProfitCoins`
-  and ≥ 5 %, no manipulation flag, fits your purse. Pets and enchanted books are skipped.
+  and ≥ 5 %, fits your purse. Pets and enchanted books are skipped.
+  **Not manipulated** (1.24.1+): the item must have real sales history (fetched first, a few seconds; none within 30 s
+  = no alert), no spike / crash / buyout / inflated-lowest-BIN flag, and the lowest BIN itself must be within 1.5× of
+  what copies really sell for — otherwise "half the lowest BIN" is just half of a pumped price.
   **The auction opens by itself** (`snipeAutoOpen`, `/skyprice snipe auto on|off`): the mod sends `/viewauction` for you
   — at most once per 10 s and never while chat or a sign is open — and you press *Buy Item Right Now* and *Confirm*.
   It is a command sent without a keypress, so it's off-able if you'd rather not risk it on Hypixel. `/skyprice snipe`

@@ -29,7 +29,10 @@ import net.minecraft.client.Minecraft;
  *     with at least 3 of them listed;
  *   - at least snipeMinPercent (default 50 %) under the lowest BIN of those copies, i.e. at most half of it;
  *   - resale = just under that copy, never above fair value or what the cheapest copies really sold for lately;
- *   - profit after AH fees ≥ minFlipProfitCoins and ≥ 5 %; no manipulation flag; fits your purse.
+ *   - not manipulated: the item needs real sales history (fetched first, a few seconds), no spike / crash / buyout /
+ *     inflated-lowest-BIN flag, and the lowest BIN itself must be within 1.5× of what copies really sell for
+ *     (otherwise "half the lowest BIN" is half of a manipulated price);
+ *   - profit after AH fees ≥ minFlipProfitCoins and ≥ 5 %; fits your purse.
  * Pets and enchanted books are skipped.
  * With snipeAutoOpen the auction view opens by itself (/viewauction, at most once per 10 s, not while chat or a sign is open, so it
  * never interrupts typing). Nothing is bought for you: you press Buy Item Right Now and Confirm yourself.
@@ -78,6 +81,7 @@ final class Sniper {
 			try {
 				Thread.sleep(3000);
 				if (cfg == null || !cfg.sniper || Minecraft.getInstance().player == null) continue;
+				retryPending();
 				if (refs.isEmpty()) {                                   // needs one full scan for the reference prices
 					AhScanner.poke(cfg, false);
 					continue;
@@ -123,23 +127,65 @@ final class Sniper {
 				if (start < prev - 5_000) continue;
 				anyNew = true;
 				if (me.equals(a.has("auctioneer") ? a.get("auctioneer").getAsString().replace("-", "") : "")) continue;
-				Alert al = judge(a, cfg);
-				if (al != null) fire(al);
+				if (!a.has("uuid")) continue;
+				synchronized (Sniper.class) {
+					if (!seen.add(a.get("uuid").getAsString())) continue;
+					if (seen.size() > 5000) seen.remove(seen.iterator().next());
+				}
+				handle(a);
 			}
 			if (!anyNew) return;                                       // newest first: older pages have nothing new
 		}
 	}
 
-	/** Undervalued? (see class doc) Null when not. */
+	private static final List<Object[]> pending = new ArrayList<>();       // {auction, first seen}
+
+	private static void handle(JsonObject a) {
+		Alert al = judge(a, cfg);
+		if (al == PENDING) {
+			synchronized (pending) {
+				pending.add(new Object[]{a, System.currentTimeMillis()});
+			}
+		} else if (al != null) fire(al);
+	}
+
+	/** Re-judge listings whose price history was still loading (give up after 30 s: no history = no alert). */
+	private static void retryPending() {
+		List<Object[]> todo;
+		synchronized (pending) {
+			todo = new ArrayList<>(pending);
+			pending.clear();
+		}
+		long now = System.currentTimeMillis();
+		for (Object[] p : todo) {
+			JsonObject a = (JsonObject) p[0];
+			Alert al = judge(a, cfg);
+			if (al == PENDING) {
+				if (now - (long) p[1] < 30_000L) synchronized (pending) { pending.add(p); }
+			} else if (al != null) fire(al);
+		}
+	}
+
+	/** judge() result: needs price data first (fetch started), try again shortly. */
+	static final Alert PENDING = new Alert("", "", "", 0, 0, 0, 0, 0, false, 0);
+
+	/** Any manipulation flag on the item (price spike or crash vs its week, lowest BIN far above sales, a buyout). */
+	static boolean manipulated(JsonObject d) {
+		if (Market.hasSevereFlag(d)) return true;
+		JsonObject m = HudFormatter.obj(d, "market");
+		if (m == null || !m.has("flags") || !m.get("flags").isJsonArray()) return false;
+		for (var e : m.getAsJsonArray("flags")) {
+			String code = e.isJsonObject() ? HudFormatter.str(e.getAsJsonObject(), "code") : null;
+			if (code != null && java.util.Set.of("spike", "crash", "lbin_high", "buyout", "manip").contains(code)) return true;
+		}
+		return false;
+	}
+
+	/** Undervalued? (see class doc) Null when not, PENDING while its price history loads. */
 	static Alert judge(JsonObject a, SkyPriceConfig cfg) {
 		if (!a.has("bin") || !a.get("bin").getAsBoolean() || a.has("claimed") && a.get("claimed").getAsBoolean()) return null;
 		if (!a.has("item_bytes") || !a.has("starting_bid") || !a.has("uuid")) return null;
 		String uuid = a.get("uuid").getAsString();
-		synchronized (Sniper.class) {
-			if (seen.contains(uuid)) return null;
-			seen.add(uuid);
-			if (seen.size() > 5000) seen.remove(seen.iterator().next());
-		}
 		String[] key = {null};
 		int[] count = {1};
 		String[] variant = {""};
@@ -155,22 +201,26 @@ final class Sniper {
 		if (r == null || r[2] < 3) return null;
 		long n = Math.max(1, count[0]);
 		double total = a.get("starting_bid").getAsDouble(), unit = total / n;
-		double ref = Math.min(r[0], r[1]);
-		boolean checked;
-		double resale = Market.undercut(ref);
-		JsonObject d = SkyPriceClient.docFor(k, false);
-		List<double[]> week = SkyPriceClient.cofl == null ? null : SkyPriceClient.cofl.week(k, false);
-		if (d != null && Market.hasSevereFlag(d)) return null;
-		Double fair = d == null ? null : Verdict.fair(d);
-		double floor = week == null ? 0 : FlipFeed.clearingFloor(week);
-		if (fair != null && fair > 0) resale = Math.min(resale, fair);
-		if (floor > 0) resale = Math.min(resale, Market.undercut(floor));
-		checked = fair != null || floor > 0;
 		double need = Math.max(0, Math.min(0.95, cfg.snipeMinPercent / 100.0));
 		if (unit > r[0] * (1 - need)) return null;                    // e.g. 50 % → at most half the lowest BIN
+		double ref = Math.min(r[0], r[1]);
+		double resale = Market.undercut(ref);
+		// price history is required: it's what tells a real bargain from a manipulated market
+		JsonObject d = SkyPriceClient.docFor(k, true);
+		List<double[]> week = SkyPriceClient.cofl == null ? null : SkyPriceClient.cofl.week(k, true);
+		if (d == null || week == null) return PENDING;                // asked for it; judged again in a few seconds
+		if (manipulated(d)) return null;
+		Double fair = Verdict.fair(d);
+		double floor = FlipFeed.clearingFloor(week);
+		if (fair == null || fair <= 0 || floor <= 0) return null;    // no real sales to go by
+		// the "lowest BIN" itself can be the manipulation (cheap copies bought out, the rest relisted high):
+		// then half of it isn't a bargain. It must be in line with what copies really sell for.
+		if (r[0] > Math.min(fair, floor) * 1.5) return null;
+		resale = Math.min(resale, Math.min(fair, Market.undercut(floor)));
+		boolean checked = true;
 		double profit = (Verdict.netAfterFees(resale * n) - total);
 		double pct = profit / total;
-		if (profit < cfg.minFlipProfitCoins || pct < (checked ? 0.05 : 0.10)) return null;
+		if (profit < cfg.minFlipProfitCoins || pct < 0.05) return null;
 		Double purse = FcfPanel.purse();
 		if (purse != null && total > purse) return null;
 		synchronized (Sniper.class) {                                  // the new copy is now the cheapest one
@@ -216,8 +266,8 @@ final class Sniper {
 		if (a == null || System.currentTimeMillis() - a.at() > SHOW_MS) return;
 		Minecraft mc = Minecraft.getInstance();
 		String l1 = "⚡ UNDERVALUED BIN  " + a.name() + (a.count() > 1 ? " ×" + a.count() : "");
-		String l2 = String.format(Locale.ROOT, "%s → resell ≈ %s   +%s (%.0f%%) after fees%s", HudFormatter.fmt(a.price()),
-				HudFormatter.fmt(a.resale()), HudFormatter.fmt(a.profit()), a.pct() * 100, a.checked() ? "" : "  (no sales history yet)");
+		String l2 = String.format(Locale.ROOT, "%s → resell ≈ %s   +%s (%.0f%%) after fees · not manipulated", HudFormatter.fmt(a.price()),
+				HudFormatter.fmt(a.resale()), HudFormatter.fmt(a.profit()), a.pct() * 100);
 		String l3 = BidHelper.currentScreen() == null ? "Type /skyprice snipe to open it (or open any menu and click this)"
 				: cfg.snipeAutoOpen && System.currentTimeMillis() - autoOpenedAt < SHOW_MS ? "Opened: press Buy Item Right Now, then Confirm"
 				: "Click here to open it";
