@@ -312,7 +312,20 @@ public final class SkyPriceClient implements ClientModInitializer {
 									config.save();
 									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Undervalued-BIN alerts off."));
 									return 1;
-								})))
+								}))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("auto")
+										.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("on").executes(ctx -> {
+											config.snipeAutoOpen = true;
+											config.save();
+											ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Alerts open the auction by themselves (you still press Buy)."));
+											return 1;
+										}))
+										.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("off").executes(ctx -> {
+											config.snipeAutoOpen = false;
+											config.save();
+											ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Alerts only show the banner; /skyprice snipe opens it."));
+											return 1;
+										}))))
 						.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("signals").executes(ctx -> {
 							JsonObject sj = data.bzSignals();
 							if (sj == null || !sj.has("signals")) {

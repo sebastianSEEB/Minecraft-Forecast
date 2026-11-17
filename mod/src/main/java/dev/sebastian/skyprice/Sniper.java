@@ -27,11 +27,12 @@ import net.minecraft.client.Minecraft;
  * What counts as undervalued (same rules as the AH market flips, see FlipFeed):
  *   - compared only with IDENTICAL copies (item + stars, recomb, enchants…) from the last full AH scan,
  *     with at least 3 of them listed;
- *   - at least snipeMinPercent under the cheapest copy that was listed;
+ *   - at least snipeMinPercent (default 50 %) under the lowest BIN of those copies, i.e. at most half of it;
  *   - resale = just under that copy, never above fair value or what the cheapest copies really sold for lately;
  *   - profit after AH fees ≥ minFlipProfitCoins and ≥ 5 %; no manipulation flag; fits your purse.
- * Without price history for the item yet the margin must be twice as big. Pets and enchanted books are skipped.
- * Nothing is bought for you: the alert opens the auction when you click it (/skyprice snipe).
+ * Pets and enchanted books are skipped.
+ * With snipeAutoOpen the auction view opens by itself (/viewauction, at most once per 10 s, not while chat or a sign is open, so it
+ * never interrupts typing). Nothing is bought for you: you press Buy Item Right Now and Confirm yourself.
  */
 final class Sniper {
 	record Alert(String uuid, String name, String key, long count, double price, double resale, double profit, double pct,
@@ -165,8 +166,8 @@ final class Sniper {
 		if (fair != null && fair > 0) resale = Math.min(resale, fair);
 		if (floor > 0) resale = Math.min(resale, Market.undercut(floor));
 		checked = fair != null || floor > 0;
-		double need = (cfg.snipeMinPercent / 100.0) * (checked ? 1 : 2);
-		if (unit > ref * (1 - need)) return null;
+		double need = Math.max(0, Math.min(0.95, cfg.snipeMinPercent / 100.0));
+		if (unit > r[0] * (1 - need)) return null;                    // e.g. 50 % → at most half the lowest BIN
 		double profit = (Verdict.netAfterFees(resale * n) - total);
 		double pct = profit / total;
 		if (profit < cfg.minFlipProfitCoins || pct < (checked ? 0.05 : 0.10)) return null;
@@ -181,6 +182,8 @@ final class Sniper {
 		return new Alert(uuid, name, k, n, total, resale * n, profit, pct, checked, System.currentTimeMillis());
 	}
 
+	private static volatile long autoOpenedAt;
+
 	private static void fire(Alert al) {
 		synchronized (Sniper.class) {
 			alerts.add(al);
@@ -188,6 +191,13 @@ final class Sniper {
 		}
 		Minecraft.getInstance().execute(() -> {
 			Chat.ping();
+			long now = System.currentTimeMillis();
+			var scr = BidHelper.currentScreen();                          // never while typing (chat, signs); menus are fine
+			boolean free = scr == null || scr instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>;
+			if (cfg.snipeAutoOpen && free && now - autoOpenedAt > 10_000L) {
+				autoOpenedAt = now;
+				Chat.command("viewauction " + al.uuid());                // the BIN view pops up; buying stays your click
+			}
 			Chat.say(HudFormatter.line("[SkyPrice] ⚡ UNDERVALUED BIN ", HudFormatter.GOLD, al.name() + " " + HudFormatter.fmt(al.price()), HudFormatter.WHITE,
 					String.format(Locale.ROOT, " → resell ≈ %s, +%s (%.0f%%) after fees", HudFormatter.fmt(al.resale()), HudFormatter.fmt(al.profit()), al.pct() * 100),
 					HudFormatter.GREEN, "  /skyprice snipe opens it", HudFormatter.GRAY));
@@ -208,7 +218,9 @@ final class Sniper {
 		String l1 = "⚡ UNDERVALUED BIN  " + a.name() + (a.count() > 1 ? " ×" + a.count() : "");
 		String l2 = String.format(Locale.ROOT, "%s → resell ≈ %s   +%s (%.0f%%) after fees%s", HudFormatter.fmt(a.price()),
 				HudFormatter.fmt(a.resale()), HudFormatter.fmt(a.profit()), a.pct() * 100, a.checked() ? "" : "  (no sales history yet)");
-		String l3 = BidHelper.currentScreen() == null ? "Type /skyprice snipe to open it (or open any menu and click this)" : "Click here to open it";
+		String l3 = BidHelper.currentScreen() == null ? "Type /skyprice snipe to open it (or open any menu and click this)"
+				: cfg.snipeAutoOpen && System.currentTimeMillis() - autoOpenedAt < SHOW_MS ? "Opened: press Buy Item Right Now, then Confirm"
+				: "Click here to open it";
 		int w = Math.max(mc.font.width(l1), Math.max(mc.font.width(l2), mc.font.width(l3))) + 16;
 		int x = (screenW - w) / 2, y = 4;
 		long age = System.currentTimeMillis() - a.at();

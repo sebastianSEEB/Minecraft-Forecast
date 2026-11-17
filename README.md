@@ -303,11 +303,13 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 - **⚡ Undervalued BIN banner** at the top of the screen, with a ping and a chat line, when a BIN is listed clearly under
   the market. Hypixel publishes the auction list about once a minute; the mod watches for that update and checks only the
   new listings, so the alert comes seconds after Hypixel publishes (within ~1 min of the listing — the API's limit).
-  Same rules as the market flips: identical copies only (≥ 3 listed at the last full scan), ≥ `snipeMinPercent` (8 %)
-  under the cheapest one, resale capped at fair value and the recent clearing price, profit after fees
-  ≥ `minFlipProfitCoins` and ≥ 5 %, no manipulation flag, fits your purse (no sales history yet → double margin).
-  Pets and enchanted books are skipped. `/skyprice snipe` opens the latest one (in a menu: click the banner);
-  `/skyprice snipe on|off`. Nothing is bought for you.
+  Only BINs at **half the lowest BIN or less** (1.24.0+, `snipeMinPercent` = 50) of identical copies (≥ 3 listed at the
+  last full scan); resale capped at fair value and the recent clearing price, profit after fees ≥ `minFlipProfitCoins`
+  and ≥ 5 %, no manipulation flag, fits your purse. Pets and enchanted books are skipped.
+  **The auction opens by itself** (`snipeAutoOpen`, `/skyprice snipe auto on|off`): the mod sends `/viewauction` for you
+  — at most once per 10 s and never while chat or a sign is open — and you press *Buy Item Right Now* and *Confirm*.
+  It is a command sent without a keypress, so it's off-able if you'd rather not risk it on Hypixel. `/skyprice snipe`
+  opens the latest alert; `/skyprice snipe on|off`. Nothing is ever bought for you.
 - **Bazaar flips are live**: re-ranked on every bazaar update (every 20 s; `bazaarRefreshMinutes` > 0 brings back the
   snapshot), header shows "live Ns". Only products that **buy and sell fast** are listed: after competition both sides
   fill ≥ 10 units/h for you, the slower side is ≥ 1/5 of the faster, and a round fits `bazaarRoundHours`.

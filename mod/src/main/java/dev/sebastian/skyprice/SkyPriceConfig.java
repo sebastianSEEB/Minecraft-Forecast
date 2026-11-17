@@ -108,7 +108,8 @@ final class SkyPriceConfig {
 	}
 
 	boolean sniper = true;            // banner + ping when an undervalued BIN is listed (needs flipFeed for the reference prices)
-	double snipeMinPercent = 8;       // at least this much under the cheapest identical copy
+	double snipeMinPercent = 50;      // alert only when the BIN is at least this much under the lowest BIN of identical copies
+	boolean snipeAutoOpen = true;     // open the auction (/viewauction) by itself when an alert fires; you still press Buy
 	int cfgRev = 0;                   // settings migrations already applied
 
 	/** One-time changes to existing settings when a new version changes a default the player never chose. */
@@ -117,6 +118,11 @@ final class SkyPriceConfig {
 			bazaarRefreshMinutes = 0;
 			liveBazaarRefreshSeconds = Math.min(liveBazaarRefreshSeconds, 20);
 			cfgRev = 1;
+		}
+		if (cfgRev < 2) {                  // 1.24: alerts only at half the lowest BIN, auction opens by itself
+			snipeMinPercent = 50;
+			snipeAutoOpen = true;
+			cfgRev = 2;
 		}
 	}
 
