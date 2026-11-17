@@ -116,7 +116,7 @@ final class CoflClient {
 		long now = System.currentTimeMillis();
 		if (now < blockedUntil) return CompletableFuture.failedFuture(new IllegalStateException("rate limited"));
 		long slot = Math.max(now, nextSlot);
-		nextSlot = slot + 650;                              // ≈ 92 requests/min, under SkyCofl's 100/min
+		nextSlot = slot + 700;                              // ≈ 85 requests/min, under SkyCofl's 100/min
 		CompletableFuture<JsonElement> f = new CompletableFuture<>();
 		queue.schedule(() -> {
 			HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(10))
@@ -181,6 +181,19 @@ final class CoflClient {
 		return pts;
 	}
 
+	private final java.util.Map<String, Long> failedAt = new java.util.concurrent.ConcurrentHashMap<>();
+
+	/** The last history request for this item failed (SkyCofl busy / rate limited); it is retried after a minute. */
+	boolean failed(String key) {
+		Long t = key == null ? null : failedAt.get(key);
+		return t != null && System.currentTimeMillis() - t < 120_000L;
+	}
+
+	/** Any other SkyCofl GET through the same rate limiter (so all requests together stay under 100/min). */
+	CompletableFuture<JsonElement> raw(String url) {
+		return get(url);
+	}
+
 	boolean loading(String key) {
 		return inFlight.containsKey(key) && !cache.containsKey(key);
 	}
@@ -190,14 +203,23 @@ final class CoflClient {
 		boolean needHistory = old == null || now - old.at() > TTL_MS;
 		CompletableFuture<JsonElement> hist = needHistory ? get(url(key, "/history/week"))
 				: CompletableFuture.completedFuture(old.history());
-		hist.handle((h, err) -> err != null ? (old == null ? null : old.history()) : h)
+		boolean[] histFailed = {false};
+		hist.handle((h, err) -> {
+					if (err == null) return h;
+					histFailed[0] = true;                       // busy / rate limited: keep what we had, retry in a minute
+					return old == null ? null : old.history();
+				})
 				.thenCompose(h -> get(url(key, "/bin")).handle((b, err) -> {
 					JsonArray ha = h != null && h.isJsonArray() ? h.getAsJsonArray() : null;
 					JsonObject bo = b != null && b.isJsonObject() ? b.getAsJsonObject() : (old == null ? null : old.bin());
 					boolean empty = (ha == null || ha.isEmpty()) && (bo == null || HudFormatter.num(bo, "lowest") == null
 							|| HudFormatter.num(bo, "lowest") <= 0);
-					cache.put(key, new Entry(needHistory ? System.currentTimeMillis() : old.at(), ha,
-							System.currentTimeMillis(), bo, empty));
+					long at = !needHistory ? old.at()
+							: histFailed[0] ? (old != null ? old.at() : System.currentTimeMillis() - TTL_MS + 60_000L)
+							: System.currentTimeMillis();
+					if (histFailed[0]) failedAt.put(key, System.currentTimeMillis());
+					else failedAt.remove(key);
+					cache.put(key, new Entry(at, ha, System.currentTimeMillis(), bo, empty && !histFailed[0]));
 					return null;
 				}))
 				.whenComplete((v, err) -> inFlight.remove(key));

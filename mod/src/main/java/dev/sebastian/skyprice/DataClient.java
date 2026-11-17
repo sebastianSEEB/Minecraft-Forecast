@@ -193,14 +193,6 @@ final class DataClient {
 	}
 
 	/** Completes with the parsed object, null on 404, exceptionally on network errors. */
-	/** Like getJson but returns any JSON (arrays too); null on 404, exception on other errors. */
-	private CompletableFuture<JsonElement> getJson2(String url, int timeoutSeconds) {
-		HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(timeoutSeconds))
-				.header("User-Agent", "SkyPrice-HUD/1.0").GET().build();
-		return http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).thenApply(resp ->
-				resp.statusCode() == 200 ? JsonParser.parseString(resp.body()) : null);
-	}
-
 	private CompletableFuture<JsonObject> getJson(String url, int timeoutSeconds) {
 		HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(timeoutSeconds))
 				.header("User-Agent", "SkyPrice-HUD/1.0").GET().build();
@@ -254,16 +246,19 @@ final class DataClient {
 
 	/**
 	 * 7-day trend of a product's instant-buy price, as a fraction per hour (regression of log price on time over
-	 * SkyCofl's week history), or NaN while unknown. Fetched lazily, one product per second, cached 30 min.
+	 * SkyCofl's week history), or NaN while unknown. Fetched lazily, one product per 5 s through the same SkyCofl
+	 * rate limiter as everything else (sending them separately caused 429s that blanked the price charts), cached 30 min.
 	 */
 	double bazaarSlide(String id) {
 		double[] v = slides.get(id);
 		long now = System.currentTimeMillis();
 		if ((v == null || now - (long) v[1] > 1_800_000L) && !slideQueue.contains(id)) slideQueue.add(id);
-		if (now - slideSentAt > 1000 && !slideQueue.isEmpty()) {
+		CoflClient cc = SkyPriceClient.cofl;
+		if (cc != null && now - slideSentAt > 5000 && !slideQueue.isEmpty()) {   // ≤ 12/min, through SkyCofl's shared limiter
 			String next = slideQueue.poll();
 			slideSentAt = now;
-			getJson2("https://sky.coflnet.com/api/bazaar/" + next + "/history/week", 15).whenComplete((arr, e) -> {
+			cc.raw("https://sky.coflnet.com/api/bazaar/" + next + "/history/week").whenComplete((arr, e) -> {
+				if (e != null) return;                               // busy: asked again on the next re-rank
 				double slope = Double.NaN;
 				if (arr != null && arr.isJsonArray()) slope = slope(arr.getAsJsonArray());
 				slides.put(next, new double[]{slope, System.currentTimeMillis()});

@@ -80,7 +80,10 @@ final class PriceChart {
 		}
 		int cx = x + 30, cw = w - 34, cy = y + 2, ch = ph - 22;            // plot area (left 30 px: y labels)
 		if (pts == null || pts.size() < 2) {
-			p.text(pts == null ? "loading 7-day history…" : "not enough sales for a chart", x + 6, cy + ch / 2, MUTED);
+			String why = pts != null ? "not enough sales for a chart"
+					: SkyPriceClient.cofl != null && SkyPriceClient.cofl.failed(h.key()) ? "SkyCofl is busy, retrying in a minute…"
+					: "loading 7-day history…";
+			p.text(why, x + 6, cy + ch / 2, MUTED);
 			return;
 		}
 		long now = System.currentTimeMillis(), from = now - 7L * 86_400_000L;
