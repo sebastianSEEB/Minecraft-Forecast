@@ -117,6 +117,19 @@ final class FlipFeed {
 			refs.put(e.getKey(), new double[]{b.p[0], Math.min(b.p[1], Market.median(next)), b.listed});
 		}
 		Sniper.setRefs(refs);
+		// items worth sniping (≥ 3 copies listed, lowest BIN ≥ 500k), most valuable first: their price history is
+		// loaded in the background so a hit can be checked instantly instead of waiting for SkyCofl
+		Map<String, Double> worth = new HashMap<>();
+		for (Map.Entry<String, double[]> e : refs.entrySet()) {
+			double[] r = e.getValue();
+			if (r[2] < 3 || r[0] < 500_000) continue;
+			String k = e.getKey().contains("#") ? e.getKey().substring(0, e.getKey().indexOf('#')) : e.getKey();
+			if (k.startsWith("PET") || k.equals("ENCHANTED_BOOK")) continue;
+			worth.merge(k, r[0] * Math.min(r[2], 10), Math::max);
+		}
+		List<String> warm = new ArrayList<>(worth.keySet());
+		warm.sort((x, y) -> Double.compare(worth.get(y), worth.get(x)));
+		Sniper.warm(warm.subList(0, Math.min(300, warm.size())));
 		List<Candidate> out = new ArrayList<>();
 		for (Map.Entry<String, Bucket> e : building.entrySet()) {
 			Candidate c = candidate(e.getKey(), e.getValue(), ts);

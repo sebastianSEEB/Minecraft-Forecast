@@ -298,6 +298,22 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 - Forecasts come from **your collector** (run.py: local `/forecasts`, else the published `forecasts.json`). With no
   collector data yet the flips work exactly as before.
 
+### Fastest sniper (mod 1.26.0+)
+
+Every step between "listed" and "you click Buy" was cut:
+- **Detection**: Hypixel republishes the AH about every 60 s. The mod learns that rhythm from when it sees each new
+  version appear, stays quiet until ~6 s before the next one, then asks every 0.4 s. A request that finds the old
+  version is cut off after a few bytes (the version stamp comes before the auctions), so this costs almost nothing.
+- **Streaming judgement**: page 0 is judged auction by auction while it downloads — a hit fires before the rest of the
+  page has even arrived.
+- **No waiting for SkyCofl**: after each full scan, the price history of the ~300 most valuable items with ≥ 3 copies
+  listed is loaded in the background (15/min), so a hit on them is fully checked in milliseconds. Anything else fires
+  **at once as "checking…"** (the auction opens immediately) and turns into **✓ checked** or a red **✗ DON'T BUY:
+  reason** within seconds.
+- **Clicking**: the auction view opens by itself (at most every 5 s) and Hypixel's *Buy Item Right Now* and *Confirm*
+  buttons get a thick blinking outline for a minute after an alert. Buying stays your two clicks.
+What's left is Hypixel's ~60 s publishing delay — the same for everyone using the public API.
+
 ### Bidders' coins in the Auction View (mod 1.25.0+)
 
 Open a normal auction (not BIN) and a panel under the menu lists the other bidders (from the Bid History and the

@@ -38,8 +38,13 @@ import net.minecraft.client.Minecraft;
  * never interrupts typing). Nothing is bought for you: you press Buy Item Right Now and Confirm yourself.
  */
 final class Sniper {
+	/** status: "ok" (checked: real sales, not manipulated), "checking" (opened at once, history still loading), "bad: …". */
 	record Alert(String uuid, String name, String key, long count, double price, double resale, double profit, double pct,
-			boolean checked, long at) {}
+			String status, long at) {
+	}
+
+	/** Cheap first look at a listing: item, identical-copy bucket, and whether it's at most half the lowest BIN. */
+	record Pre(String uuid, String key, String bucket, long count, double total, double unit, double[] ref, String name) {}
 
 	/** bucket (item#variant) → {cheapest, reference = min(2nd, median 2nd–5th), listed} from the last full scan. */
 	private static volatile Map<String, double[]> refs = Map.of();
@@ -76,21 +81,37 @@ final class Sniper {
 	}
 
 	// ------------------------------------------------------------------ watching
+	private static volatile long seenAt, lastOldAt;            // when we saw the current version appear / the old one last
+	private static volatile List<String> warmKeys = List.of();
+	private static int warmIdx;
+	private static long warmAt;
+
+	/** Items worth sniping, from the last scan: their price history is loaded in the background so a hit is judged at once. */
+	static void warm(List<String> keys) {
+		warmKeys = keys;
+		warmIdx = 0;
+	}
+
 	private static void loop() {
 		while (true) {
 			try {
-				Thread.sleep(1000);
+				Thread.sleep(250);
 				if (cfg == null || !cfg.sniper || Minecraft.getInstance().player == null) continue;
+				long now = System.currentTimeMillis();
 				retryPending();
 				if (refs.isEmpty()) {                                   // needs one full scan for the reference prices
-					AhScanner.poke(cfg, false);
+					if (now - lastPollAt > 5000) {
+						lastPollAt = now;
+						AhScanner.poke(cfg, false);
+					}
 					continue;
 				}
-				long now = System.currentTimeMillis();
-				// Hypixel republishes every ~60 s: stay quiet until just before that, then ask every second so a new
-				// listing is seen within ~1 s of being published (instead of up to 3 s) — at most ~10 requests a minute
-				if (lastUpdated > 0 && now < lastUpdated + 57_000 && now > lastUpdated) continue;
-				if (now - lastPollAt < 1000) continue;
+				warmStep(now);
+				// Hypixel republishes about every 60 s. Quiet until ~6 s before the next one is due (timed from when we
+				// saw the last one, so your PC clock doesn't matter), then ask every 0.4 s. A request that finds the old
+				// version is cut off after its first few bytes, so asking that often costs almost nothing.
+				if (seenAt > 0 && now < seenAt + 54_000) continue;
+				if (now - lastPollAt < 400) continue;
 				lastPollAt = now;
 				poll();
 			} catch (InterruptedException e) {
@@ -101,77 +122,140 @@ final class Sniper {
 		}
 	}
 
+	/** One background history fetch every 4 s for a likely snipe target that isn't cached yet (~15 items a minute). */
+	private static void warmStep(long now) {
+		if (now - warmAt < 4000 || SkyPriceClient.cofl == null) return;
+		List<String> keys = warmKeys;
+		while (warmIdx < keys.size()) {
+			String k = keys.get(warmIdx++);
+			if (SkyPriceClient.cofl.week(k, false) != null) continue;
+			warmAt = now;
+			SkyPriceClient.docFor(k, true);
+			SkyPriceClient.cofl.week(k, true);
+			return;
+		}
+	}
+
 	private static void poll() throws Exception {
 		String me = Minecraft.getInstance().player.getUUID().toString().replace("-", "").toLowerCase(Locale.ROOT);
 		long prev = lastUpdated;
 		for (int p = 0; p < 4; p++) {
-			long updated = 0;
-			boolean anyNew = false;
-			List<JsonObject> fresh = new ArrayList<>();
+			boolean anyNew = false, fresh = p > 0;
+			long cutoff = prev == 0 ? Long.MAX_VALUE : prev - 5_000;
 			try (JsonReader r = new JsonReader(new InputStreamReader(AhScanner.page(p), StandardCharsets.UTF_8))) {
 				r.beginObject();
 				while (r.hasNext()) {
 					String name = r.nextName();
-					if (name.equals("lastUpdated")) updated = r.nextLong();
-					else if (name.equals("auctions")) {
+					if (name.equals("lastUpdated")) {
+						long updated = r.nextLong();
+						if (p == 0) {
+							long t = System.currentTimeMillis();
+							if (updated <= prev) {                         // same version: stop reading, close the stream
+								lastOldAt = t;
+								return;
+							}
+							lastUpdated = updated;
+							// we only know when Hypixel published if the poll just before still saw the old version;
+							// otherwise (start-up, a hiccup) keep polling until we catch the next change exactly
+							seenAt = t - lastOldAt < 1500 ? t : 0;
+							fresh = true;
+							cutoff = prev == 0 ? updated - 70_000 : prev - 5_000;   // first look: the last minute or so
+						}
+					} else if (name.equals("auctions") && fresh) {
 						r.beginArray();
-						while (r.hasNext()) fresh.add(JsonParser.parseReader(r).getAsJsonObject());
+						while (r.hasNext()) {                               // judged while streaming: a hit fires at once
+							JsonObject a = JsonParser.parseReader(r).getAsJsonObject();
+							long start = a.has("start") ? a.get("start").getAsLong() : 0;
+							if (start < cutoff) continue;
+							anyNew = true;
+							if (!a.has("uuid") || me.equals(a.has("auctioneer") ? a.get("auctioneer").getAsString().replace("-", "") : "")) continue;
+							synchronized (Sniper.class) {
+								if (!seen.add(a.get("uuid").getAsString())) continue;
+								if (seen.size() > 5000) seen.remove(seen.iterator().next());
+							}
+							handle(a);
+						}
 						r.endArray();
 					} else r.skipValue();
 				}
 				r.endObject();
 			}
-			if (p == 0) {
-				if (updated <= prev) return;                          // nothing new published yet
-				lastUpdated = updated;
-				if (prev == 0) prev = updated - 70_000;               // first look: the last minute or so
-			}
-			for (JsonObject a : fresh) {
-				long start = a.has("start") ? a.get("start").getAsLong() : 0;
-				if (start < prev - 5_000) continue;
-				anyNew = true;
-				if (me.equals(a.has("auctioneer") ? a.get("auctioneer").getAsString().replace("-", "") : "")) continue;
-				if (!a.has("uuid")) continue;
-				synchronized (Sniper.class) {
-					if (!seen.add(a.get("uuid").getAsString())) continue;
-					if (seen.size() > 5000) seen.remove(seen.iterator().next());
-				}
-				handle(a);
-			}
 			if (!anyNew) return;                                       // newest first: older pages have nothing new
 		}
 	}
 
-	private static final List<Object[]> pending = new ArrayList<>();       // {auction, first seen}
+	private static final List<Object[]> pending = new ArrayList<>();       // {Pre, first seen}
 
+	/**
+	 * Speed first: a listing at half the lowest BIN or less fires immediately. If its price history is cached it's fully
+	 * checked first (a few ms); if not, the alert goes out as "checking…" (auction opens at once) while the history
+	 * loads, then turns into ✓ or ✗ (don't buy) within seconds.
+	 */
 	private static void handle(JsonObject a) {
-		Alert al = judge(a, cfg);
-		if (al == PENDING) {
+		Pre pre = pre(a, cfg);
+		if (pre == null) return;
+		Object v = evaluate(pre, cfg);
+		if (v instanceof Alert al) fire(al);
+		else if (v == PENDING) {
+			Alert prov = provisional(pre, cfg);
+			if (prov == null) return;
+			fire(prov);
 			synchronized (pending) {
-				pending.add(new Object[]{a, System.currentTimeMillis()});
+				pending.add(new Object[]{pre, System.currentTimeMillis()});
 			}
-		} else if (al != null) fire(al);
+		}
 	}
 
-	/** Re-judge listings whose price history was still loading (give up after 30 s: no history = no alert). */
+	/** Re-check alerts that went out as "checking…" (no history within 30 s = ✗). */
 	private static void retryPending() {
 		List<Object[]> todo;
 		synchronized (pending) {
+			if (pending.isEmpty()) return;
 			todo = new ArrayList<>(pending);
 			pending.clear();
 		}
 		long now = System.currentTimeMillis();
 		for (Object[] p : todo) {
-			JsonObject a = (JsonObject) p[0];
-			Alert al = judge(a, cfg);
-			if (al == PENDING) {
+			Pre pre = (Pre) p[0];
+			Object v = evaluate(pre, cfg);
+			if (v == PENDING) {
 				if (now - (long) p[1] < 30_000L) synchronized (pending) { pending.add(p); }
-			} else if (al != null) fire(al);
+				else update(pre.uuid(), "bad: no sales history to check it against");
+			} else if (v instanceof Alert al) update(pre.uuid(), "ok", al);
+			else update(pre.uuid(), "bad: " + v);
 		}
 	}
 
+	private static void update(String uuid, String status) {
+		update(uuid, status, null);
+	}
+
+	private static void update(String uuid, String status, Alert checked) {
+		Alert now = null;
+		synchronized (Sniper.class) {
+			for (int i = 0; i < alerts.size(); i++) {
+				Alert old = alerts.get(i);
+				if (!old.uuid().equals(uuid)) continue;
+				Alert base = checked != null ? checked : old;          // checked numbers (real sale prices) when we have them
+				now = new Alert(base.uuid(), base.name(), base.key(), base.count(), base.price(), base.resale(), base.profit(),
+						base.pct(), status, old.at());
+				alerts.set(i, now);
+			}
+		}
+		if (now == null) return;
+		final Alert a = now;
+		Minecraft.getInstance().execute(() -> {
+			if (a.status().equals("ok")) {
+				Chat.say(HudFormatter.line("[SkyPrice] ✓ checked: ", HudFormatter.GREEN, a.name() + " is a real snipe (sales history, not manipulated)"
+						+ String.format(Locale.ROOT, ", resell ≈ %s, +%s after fees", HudFormatter.fmt(a.resale()), HudFormatter.fmt(a.profit())), HudFormatter.WHITE));
+			} else {
+				Chat.say(HudFormatter.line("[SkyPrice] ✗ DON'T BUY ", HudFormatter.RED, a.name() + ": " + a.status().replaceFirst("^bad: ", ""), HudFormatter.WHITE));
+			}
+		});
+	}
+
 	/** judge() result: needs price data first (fetch started), try again shortly. */
-	static final Alert PENDING = new Alert("", "", "", 0, 0, 0, 0, 0, false, 0);
+	static final Alert PENDING = new Alert("", "", "", 0, 0, 0, 0, 0, "pending", 0);
 
 	/** Any manipulation flag on the item (price spike or crash vs its week, lowest BIN far above sales, a buyout). */
 	static boolean manipulated(JsonObject d) {
@@ -185,11 +269,20 @@ final class Sniper {
 		return false;
 	}
 
-	/** Undervalued? (see class doc) Null when not, PENDING while its price history loads. */
+	/** Full check (see class doc): an "ok" Alert, null when it simply isn't a snipe… used by tests and the chat path. */
 	static Alert judge(JsonObject a, SkyPriceConfig cfg) {
+		Pre pre = pre(a, cfg);
+		if (pre == null) return null;
+		Object v = evaluate(pre, cfg);
+		return v instanceof Alert al ? al : v == PENDING ? PENDING : null;
+	}
+
+	static Pre pre(JsonObject a, SkyPriceConfig cfg) {
 		if (!a.has("bin") || !a.get("bin").getAsBoolean() || a.has("claimed") && a.get("claimed").getAsBoolean()) return null;
 		if (!a.has("item_bytes") || !a.has("starting_bid") || !a.has("uuid")) return null;
-		String uuid = a.get("uuid").getAsString();
+		long total = a.get("starting_bid").getAsLong();
+		Double purse = FcfPanel.purse();
+		if (purse != null && total > purse) return null;
 		String[] key = {null};
 		int[] count = {1};
 		String[] variant = {""};
@@ -204,36 +297,44 @@ final class Sniper {
 		double[] r = refs.get(bucket);
 		if (r == null || r[2] < 3) return null;
 		long n = Math.max(1, count[0]);
-		double total = a.get("starting_bid").getAsDouble(), unit = total / n;
+		double unit = (double) total / n;
 		double need = Math.max(0, Math.min(0.95, cfg.snipeMinPercent / 100.0));
 		if (unit > r[0] * (1 - need)) return null;                    // e.g. 50 % → at most half the lowest BIN
+		String name = a.has("item_name") ? a.get("item_name").getAsString().replaceAll("§.", "") : k;
+		return new Pre(a.get("uuid").getAsString(), k, bucket, n, total, unit, r, name);
+	}
+
+	/** An Alert ("ok"), PENDING (history loading), or a String reason why it's not a buy. */
+	static Object evaluate(Pre p, SkyPriceConfig cfg) {
+		double[] r = p.ref();
 		double ref = Math.min(r[0], r[1]);
-		double resale = Market.undercut(ref);
-		// price history is required: it's what tells a real bargain from a manipulated market
-		JsonObject d = SkyPriceClient.docFor(k, true);
-		List<double[]> week = SkyPriceClient.cofl == null ? null : SkyPriceClient.cofl.week(k, true);
-		if (d == null || week == null) return PENDING;                // asked for it; judged again in a few seconds
-		if (manipulated(d)) return null;
+		JsonObject d = SkyPriceClient.docFor(p.key(), true);
+		List<double[]> week = SkyPriceClient.cofl == null ? null : SkyPriceClient.cofl.week(p.key(), true);
+		if (d == null || week == null) return PENDING;
+		if (manipulated(d)) return "the market is manipulated (spike / crash / buyout / inflated listings)";
 		Double fair = Verdict.fair(d);
 		double floor = FlipFeed.clearingFloor(week);
-		if (fair == null || fair <= 0 || floor <= 0) return null;    // no real sales to go by
-		// the "lowest BIN" itself can be the manipulation (cheap copies bought out, the rest relisted high):
-		// then half of it isn't a bargain. It must be in line with what copies really sell for.
-		if (r[0] > Math.min(fair, floor) * 1.5) return null;
-		resale = Math.min(resale, Math.min(fair, Market.undercut(floor)));
-		boolean checked = true;
-		double profit = (Verdict.netAfterFees(resale * n) - total);
-		double pct = profit / total;
-		if (profit < cfg.minFlipProfitCoins || pct < 0.05) return null;
-		Double purse = FcfPanel.purse();
-		if (purse != null && total > purse) return null;
+		if (fair == null || fair <= 0 || floor <= 0) return "no real sales to price it against";
+		// the "lowest BIN" itself can be the manipulation (cheap copies bought out, the rest relisted high)
+		if (r[0] > Math.min(fair, floor) * 1.5) return "the lowest BIN is inflated vs real sales (" + HudFormatter.fmt(Math.min(fair, floor)) + ")";
+		double resale = Math.min(Market.undercut(ref), Math.min(fair, Market.undercut(floor)));
+		double profit = Verdict.netAfterFees(resale * p.count()) - p.total();
+		double pct = profit / p.total();
+		if (profit < cfg.minFlipProfitCoins || pct < 0.05) return "too little profit after fees at real sale prices";
 		synchronized (Sniper.class) {                                  // the new copy is now the cheapest one
 			Map<String, double[]> m = new HashMap<>(refs);
-			m.put(bucket, new double[]{unit, ref, r[2] + 1});
+			m.put(p.bucket(), new double[]{p.unit(), ref, r[2] + 1});
 			refs = m;
 		}
-		String name = a.has("item_name") ? a.get("item_name").getAsString().replaceAll("§.", "") : k;
-		return new Alert(uuid, name, k, n, total, resale * n, profit, pct, checked, System.currentTimeMillis());
+		return new Alert(p.uuid(), p.name(), p.key(), p.count(), p.total(), resale * p.count(), profit, pct, "ok", System.currentTimeMillis());
+	}
+
+	/** The instant alert while history loads: resale just under the next copies, still has to clear the profit bar. */
+	private static Alert provisional(Pre p, SkyPriceConfig cfg) {
+		double resale = Market.undercut(Math.min(p.ref()[0], p.ref()[1])) * p.count();
+		double profit = Verdict.netAfterFees(resale) - p.total();
+		if (profit < cfg.minFlipProfitCoins || profit / p.total() < 0.05) return null;
+		return new Alert(p.uuid(), p.name(), p.key(), p.count(), p.total(), resale, profit, profit / p.total(), "checking", System.currentTimeMillis());
 	}
 
 	private static volatile long autoOpenedAt;
@@ -248,13 +349,13 @@ final class Sniper {
 			long now = System.currentTimeMillis();
 			var scr = BidHelper.currentScreen();                          // never while typing (chat, signs); menus are fine
 			boolean free = scr == null || scr instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>;
-			if (cfg.snipeAutoOpen && free && now - autoOpenedAt > 10_000L) {
+			if (cfg.snipeAutoOpen && free && now - autoOpenedAt > 5_000L) {
 				autoOpenedAt = now;
 				Chat.command("viewauction " + al.uuid());                // the BIN view pops up; buying stays your click
 			}
 			Chat.say(HudFormatter.line("[SkyPrice] ⚡ UNDERVALUED BIN ", HudFormatter.GOLD, al.name() + " " + HudFormatter.fmt(al.price()), HudFormatter.WHITE,
 					String.format(Locale.ROOT, " → resell ≈ %s, +%s (%.0f%%) after fees", HudFormatter.fmt(al.resale()), HudFormatter.fmt(al.profit()), al.pct() * 100),
-					HudFormatter.GREEN, "  /skyprice snipe opens it", HudFormatter.GRAY));
+					HudFormatter.GREEN, al.status().equals("ok") ? "  ✓ checked" : "  checking history… wait for ✓ before you confirm", HudFormatter.GRAY));
 		});
 	}
 
@@ -270,22 +371,51 @@ final class Sniper {
 		if (a == null || System.currentTimeMillis() - a.at() > SHOW_MS) return;
 		Minecraft mc = Minecraft.getInstance();
 		String l1 = "⚡ UNDERVALUED BIN  " + a.name() + (a.count() > 1 ? " ×" + a.count() : "");
-		String l2 = String.format(Locale.ROOT, "%s → resell ≈ %s   +%s (%.0f%%) after fees · not manipulated", HudFormatter.fmt(a.price()),
-				HudFormatter.fmt(a.resale()), HudFormatter.fmt(a.profit()), a.pct() * 100);
+		boolean ok = a.status().equals("ok"), checking = a.status().equals("checking");
+		String l2 = !ok && !checking ? "✗ DON'T BUY: " + a.status().replaceFirst("^bad: ", "")
+				: String.format(Locale.ROOT, "%s → resell ≈ %s   +%s (%.0f%%) after fees · %s", HudFormatter.fmt(a.price()),
+						HudFormatter.fmt(a.resale()), HudFormatter.fmt(a.profit()), a.pct() * 100,
+						ok ? "✓ checked, not manipulated" : "checking history…");
 		String l3 = BidHelper.currentScreen() == null ? "Type /skyprice snipe to open it (or open any menu and click this)"
 				: cfg.snipeAutoOpen && System.currentTimeMillis() - autoOpenedAt < SHOW_MS ? "Opened: press Buy Item Right Now, then Confirm"
 				: "Click here to open it";
 		int w = Math.max(mc.font.width(l1), Math.max(mc.font.width(l2), mc.font.width(l3))) + 16;
 		int x = (screenW - w) / 2, y = 4;
 		long age = System.currentTimeMillis() - a.at();
-		int border = (age / 400) % 2 == 0 ? 0xFFFFAA00 : 0xFFFFD35C;          // blinks gently
+		int border = !ok && !checking ? 0xFFFF5555 : (age / 400) % 2 == 0 ? 0xFFFFAA00 : 0xFFFFD35C;   // blinks; red = don't
 		p.fill(x - 1, y - 1, x + w + 1, y + 37, border);
 		p.fill(x, y, x + w, y + 36, 0xF0101418);
 		p.text(l1, x + 8, y + 3, 0xFFFFAA00);
-		p.text(l2, x + 8, y + 14, 0xFF55FF55);
+		p.text(l2, x + 8, y + 14, ok ? 0xFF55FF55 : checking ? 0xFFFFFF55 : 0xFFFF5555);
 		p.text(l3, x + 8, y + 25, 0xFFAAAAAA);
 		bannerBox = new int[]{x, y, x + w, y + 36};
 		bannerAt = System.currentTimeMillis();
+	}
+
+	/**
+	 * After an alert (last 60 s): a thick blinking box on Hypixel's "Buy Item Right Now" and "Confirm" buttons, so your
+	 * eyes and mouse go straight there. Green when the snipe is checked, yellow while checking, none for ✗.
+	 */
+	static void paintButtons(Highlight.Painter p, net.minecraft.client.gui.screens.Screen s) {
+		Alert a = latest();
+		if (a == null || System.currentTimeMillis() - a.at() > 60_000 || a.status().startsWith("bad")) return;
+		if (!(s instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?> acs)) return;
+		String t = s.getTitle().getString().toLowerCase(Locale.ROOT);
+		if (!t.contains("auction view") && !t.contains("confirm")) return;
+		int[] box = GuiPos.box(s);
+		int col = (System.currentTimeMillis() / 250) % 2 == 0 ? (a.status().equals("ok") ? 0xFF55FF55 : 0xFFFFFF55) : 0xFFFFFFFF;
+		for (net.minecraft.world.inventory.Slot sl : acs.getMenu().slots) {
+			if (sl.getItem() == null || sl.getItem().isEmpty()) continue;
+			String n = sl.getItem().getHoverName().getString().replaceAll("§.", "").toLowerCase(Locale.ROOT);
+			if (!n.contains("buy item right now") && !n.equals("confirm")) continue;
+			int x = box[0] + sl.x, y = box[1] + sl.y;
+			for (int k = 1; k <= 3; k++) {
+				p.fill(x - k, y - k, x + 16 + k, y - k + 1, col);
+				p.fill(x - k, y + 16 + k - 1, x + 16 + k, y + 16 + k, col);
+				p.fill(x - k, y - k, x - k + 1, y + 16 + k, col);
+				p.fill(x + 16 + k - 1, y - k, x + 16 + k, y + 16 + k, col);
+			}
+		}
 	}
 
 	private static volatile int[] bannerBox;

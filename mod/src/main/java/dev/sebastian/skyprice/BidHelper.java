@@ -50,6 +50,7 @@ final class BidHelper {
 			SignFill.signOpened(screen);
 			RenderHook.register(screen, (s, painter) -> {
 				try {
+					Sniper.paintButtons(painter, s);                   // Buy / Confirm outlined right after an alert
 					Sniper.paint(painter, s.width);                    // undervalued-BIN banner, on top of any menu
 				} catch (RuntimeException e) {
 					System.err.println("[SkyPrice] snipe banner: " + e);
