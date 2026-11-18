@@ -3,6 +3,7 @@
   GET /itemdata/<KEY>   full item document (same format as data/items/<KEY>.json) — used by the mod
   GET /hud/<KEY>        tooltip lines (used by the lookup page)
   GET /item/<KEY>       full stats + forecast JSON
+  GET /wealth/<name>     what a player can bid with: purse + bank (needs your API key)
   GET /signals           bazaar misprices, correlations and suggestions (ERP → Signals)
   GET /forecasts         every item's 1h/6h/24h forecast (compact; the mod's flip lists use it)
   GET /history/<SERIES>?hours=168   hourly bars (series: bz:<ID>:buy, ah:<KEY>, lbin:<KEY>)
@@ -35,8 +36,35 @@ CACHE_SECONDS = 30
 INDEX_HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
 
+WEALTH_TTL = 15 * 60
+
+
+def wealth_lookup(api, key: str, name: str, cache: dict, now: float | None = None) -> dict:
+    """Coins a player can bid with: purse + bank of their selected SkyBlock profile (Hypixel API, your key).
+    Cached 15 min per name; names → UUIDs cached for the session."""
+    now = time.time() if now is None else now
+    k = name.lower()
+    hit = cache.get(k)
+    if hit and now - hit["at"] < WEALTH_TTL:
+        return hit
+    if not key:
+        raise RuntimeError("no Hypixel API key: put it in hypixel_api_key.txt next to run.py")
+    uuid = (hit or {}).get("uuid") or api.uuid_of(name)
+    from .collector import wallet_from_profiles
+    w = wallet_from_profiles(api.profiles(uuid, key), uuid) or {}
+    out = {"name": name, "uuid": uuid, "profile": w.get("profile"), "purse": w.get("purse"), "bank": w.get("bank"),
+           "personal_bank": w.get("personal_bank"), "total": w.get("total"), "bank_visible": w.get("bank") is not None,
+           "found": bool(w), "at": now}
+    cache[k] = out
+    return out
+
+
 def make_handler(cfg: Config, db: Database):
     local = threading.local()
+
+    from .hypixel import HypixelClient
+    api = HypixelClient(cfg.api_base, cfg.user_agent, timeout=10)
+    wealth_cache: dict = {}
 
     def conn():
         if not hasattr(local, "c"):
@@ -140,6 +168,15 @@ def make_handler(cfg: Config, db: Database):
                     rows = conn().execute("SELECT hour, avg, median, high, low, n, volume FROM hourly WHERE series=? AND hour>? ORDER BY hour",
                                           (parts[1], now_h - hours)).fetchall()
                     return self._send(200, [dict(r) | {"ts": r["hour"] * HOUR_MS} for r in rows])
+                if parts[0] == "wealth" and len(parts) == 2:
+                    # what another player can bid with (purse + bank), for the bidder panel in the auction view
+                    name = parts[1]
+                    if not name.replace("_", "").isalnum() or len(name) > 16:
+                        return self._send(400, {"error": "bad name"})
+                    try:
+                        return self._send(200, wealth_lookup(api, cfg.hypixel_api_key, name, wealth_cache))
+                    except Exception as e:  # noqa: BLE001
+                        return self._send(502, {"error": str(e)})
                 if parts[0] == "signals":
                     f = Path(cfg.db_path).parent / "site" / "data" / "bz_signals.json"
                     if not f.exists():

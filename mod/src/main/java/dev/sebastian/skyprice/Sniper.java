@@ -21,7 +21,7 @@ import net.minecraft.client.Minecraft;
  * under the market appears on the AH.
  *
  * How fast: Hypixel publishes the auction list about once a minute, newest first. The mod watches for that update
- * (polling page 0 every 3 s only around the time it's due) and checks just the new listings, so an alert shows a few
+ * (polling page 0 every second, only around the time it's due) and checks just the new listings, so an alert shows a few
  * seconds after Hypixel publishes it — within about a minute of the seller listing it, the API's limit.
  *
  * What counts as undervalued (same rules as the AH market flips, see FlipFeed):
@@ -46,7 +46,7 @@ final class Sniper {
 	private static final List<Alert> alerts = new ArrayList<>();
 	private static final Set<String> seen = new LinkedHashSet<>();
 	private static SkyPriceConfig cfg;
-	private static volatile long lastUpdated;
+	private static volatile long lastUpdated, lastPollAt;
 	private static Thread thread;
 	static final long SHOW_MS = 12_000;
 
@@ -79,7 +79,7 @@ final class Sniper {
 	private static void loop() {
 		while (true) {
 			try {
-				Thread.sleep(3000);
+				Thread.sleep(1000);
 				if (cfg == null || !cfg.sniper || Minecraft.getInstance().player == null) continue;
 				retryPending();
 				if (refs.isEmpty()) {                                   // needs one full scan for the reference prices
@@ -87,7 +87,11 @@ final class Sniper {
 					continue;
 				}
 				long now = System.currentTimeMillis();
-				if (lastUpdated > 0 && now < lastUpdated + 55_000 && now > lastUpdated) continue;   // next update not due yet
+				// Hypixel republishes every ~60 s: stay quiet until just before that, then ask every second so a new
+				// listing is seen within ~1 s of being published (instead of up to 3 s) — at most ~10 requests a minute
+				if (lastUpdated > 0 && now < lastUpdated + 57_000 && now > lastUpdated) continue;
+				if (now - lastPollAt < 1000) continue;
+				lastPollAt = now;
 				poll();
 			} catch (InterruptedException e) {
 				return;

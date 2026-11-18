@@ -77,6 +77,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		BzOrders.init(config, data);
 		FlipFeed.init(config);
 		Sniper.init(config);
+		Bidders.init(config);
 		FlipPanel.init(config, data);
 		SignFill.init(config, data);
 		PriceChart.init(config);

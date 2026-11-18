@@ -155,6 +155,30 @@ def test_from_collector_db():
     assert any(s["id"] == "P0" and s["type"] == "cheap" for s in out["signals"]), out["signals"]
 
 
+def test_wealth_lookup_caches_and_sums_coins():
+    """GET /wealth/<name>: purse + bank of the selected profile, cached 15 min (market/server.py)."""
+    from market.server import wealth_lookup
+
+    class Fake:
+        calls = 0
+
+        def uuid_of(self, n):
+            self.calls += 1
+            return "abc"
+
+        def profiles(self, u, k):
+            self.calls += 1
+            return {"profiles": [{"selected": True, "cute_name": "Apple", "banking": {"balance": 40e6},
+                                  "members": {"abc": {"currencies": {"coin_purse": 5e6}}}}]}
+    api, cache = Fake(), {}
+    w = wealth_lookup(api, "KEY", "Rich_Guy", cache, now=1000)
+    assert w["total"] == 45e6 and w["bank_visible"], w
+    wealth_lookup(api, "KEY", "rich_guy", cache, now=1500)
+    assert api.calls == 2
+    wealth_lookup(api, "KEY", "Rich_Guy", cache, now=1000 + 16 * 60)
+    assert api.calls == 3
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

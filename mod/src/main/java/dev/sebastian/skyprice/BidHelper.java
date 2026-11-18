@@ -67,6 +67,12 @@ final class BidHelper {
 					System.err.println("[SkyPrice] overlay: " + e);
 				}
 				try {
+					Bidders.scan(s);
+					Bidders.paint(painter, s);
+				} catch (RuntimeException e) {
+					System.err.println("[SkyPrice] bidders: " + e);
+				}
+				try {
 					BzOrders.scan(s);
 					FlipPanel.paint(s, painter);
 				} catch (RuntimeException e) {

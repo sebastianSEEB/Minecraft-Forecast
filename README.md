@@ -298,6 +298,15 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 - Forecasts come from **your collector** (run.py: local `/forecasts`, else the published `forecasts.json`). With no
   collector data yet the flips work exactly as before.
 
+### Bidders' coins in the Auction View (mod 1.25.0+)
+
+Open a normal auction (not BIN) and a panel under the menu lists the other bidders (from the Bid History and the
+"Bidder:" line) with **how far each can go**: purse + bank of their selected profile, plus their current bid (it comes
+back to them when they're outbid). The footer names the richest: bid above that and none of the current bidders can
+follow. Net worth also counts items, but those can't be bid with until sold, so coins are what matters here. "bank
+hidden" = their Banking API is off, so only the purse is known (they may have more). The lookup goes through your
+collector (`GET /wealth/<name>`, your API key, cached 15 min) — start it with start.bat for this to work.
+
 ### Undervalued-BIN alert + live bazaar flipper (mod 1.23.0+)
 
 - **⚡ Undervalued BIN banner** at the top of the screen, with a ping and a chat line, when a BIN is listed clearly under
