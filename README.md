@@ -298,6 +298,23 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
 - Forecasts come from **your collector** (run.py: local `/forecasts`, else the published `forecasts.json`). With no
   collector data yet the flips work exactly as before.
 
+### Snipe tab, your own limits, blacklist, unreliable prices (mod 1.27.0+)
+
+- **FLIP → Snipe tab**: the latest alerts (✓ checked / … checking / ✗ skip with the reason; click one to open it), and
+  **every item the sniper watches** with the price that would trigger an alert (paged). Chips: 25 / 35 / 50 % off,
+  auto-open, on/off.
+- **Your limits**: `/skyprice snipe min <percent>` (alert at that much under the lowest BIN), `/skyprice snipe max <price>`
+  (e.g. `20m`; `0` = your purse), `/skyprice snipe block <ITEM_ID>` / `unblock <ITEM_ID>`.
+- **Blacklist** (built in, from what makes snipes fake): skins, dyes, runes, attribute shards, New Year Cakes (value = year),
+  Midas weapons (value = price paid), potions, party / balloon hats, cake souls, editions; pets and enchanted books.
+  Plus, automatically: lowest BIN under 1M (`snipeMinValue`), under 2 sales/day (`snipeMinSalesPerDay`), and any item
+  whose sales are erratic.
+- **Erratic sale histories** (thin markets with "sales" at wildly different prices, e.g. a 100M sale of a ~15M item —
+  coin transfers): the 25th–75th percentile of this week's sales differ ≥ 2.5×, or one sale is ≥ 5× the median with
+  < 20 sales. Tooltips then say **NO RELIABLE PRICE** instead of GREAT BUY / PROFIT FLIP, and such items never show up
+  as flips or snipes. Tooltip resale is also capped at what the cheapest copies really sold for.
+- No auto-buy: buying stays two clicks of yours (Hypixel bans automated buying).
+
 ### Fastest sniper (mod 1.26.0+)
 
 Every step between "listed" and "you click Buy" was cut:

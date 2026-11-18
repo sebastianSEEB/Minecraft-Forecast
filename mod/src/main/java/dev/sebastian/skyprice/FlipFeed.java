@@ -124,7 +124,7 @@ final class FlipFeed {
 			double[] r = e.getValue();
 			if (r[2] < 3 || r[0] < 500_000) continue;
 			String k = e.getKey().contains("#") ? e.getKey().substring(0, e.getKey().indexOf('#')) : e.getKey();
-			if (k.startsWith("PET") || k.equals("ENCHANTED_BOOK")) continue;
+			if (Sniper.blocked(k, cfg)) continue;
 			worth.merge(k, r[0] * Math.min(r[2], 10), Math::max);
 		}
 		List<String> warm = new ArrayList<>(worth.keySet());
@@ -212,6 +212,7 @@ final class FlipFeed {
 		if (fair == null || fair <= 0) return null;
 		double floor = clearingFloor(week);
 		if (!(floor > 0)) return null;
+		if (Market.erratic(week).bad()) return null;                 // coin-transfer / manipulated sale history
 		Market.Liquidity liq = Market.liquidity(d, fair);
 		double fc = forecast == null ? 0 : Forecasts.counted(forecast, liq.etaHours());
 		double resale = Math.min(Market.undercut(c.ref()), Math.min(fair, Market.undercut(floor)) * (1 + fc));

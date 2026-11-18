@@ -33,7 +33,7 @@ import net.minecraft.client.Minecraft;
  *     inflated-lowest-BIN flag, and the lowest BIN itself must be within 1.5× of what copies really sell for
  *     (otherwise "half the lowest BIN" is half of a manipulated price);
  *   - profit after AH fees ≥ minFlipProfitCoins and ≥ 5 %; fits your purse.
- * Pets and enchanted books are skipped.
+ * Blacklisted, cheap (< snipeMinValue), slow-selling and erratic-history items are skipped (see BLOCK_CONTAINS).
  * With snipeAutoOpen the auction view opens by itself (/viewauction, at most once per 10 s, not while chat or a sign is open, so it
  * never interrupts typing). Nothing is bought for you: you press Buy Item Right Now and Confirm yourself.
  */
@@ -41,6 +41,27 @@ final class Sniper {
 	/** status: "ok" (checked: real sales, not manipulated), "checking" (opened at once, history still loading), "bad: …". */
 	record Alert(String uuid, String name, String key, long count, double price, double resale, double profit, double pct,
 			String status, long at) {
+	}
+
+	/**
+	 * Built-in blacklist: items whose price depends on something the AH data can't see, or whose markets are known for
+	 * fake / coin-transfer sales, so "half the lowest BIN" is usually not a bargain:
+	 *   skins, dyes and runes (cosmetic, thin, often manipulated), attribute shards (value = which attribute),
+	 *   New Year Cakes (value = year), Midas weapons (value = price paid), potions (value = level / type),
+	 *   party and balloon hats (colour / year), cake souls, editions. Pets and enchanted books are skipped anyway.
+	 * Plus every item whose sales this week are erratic (Market.erratic), that sells under snipeMinSalesPerDay, or whose
+	 * lowest BIN is under snipeMinValue. Your own /skyprice snipe block|unblock lists go on top.
+	 */
+	static final String[] BLOCK_CONTAINS = {"SKIN", "DYE_", "RUNE", "ATTRIBUTE_SHARD", "NEW_YEAR_CAKE", "MIDAS_", "POTION",
+			"PARTY_HAT", "BALLOON_HAT", "CAKE_SOUL", "EDITION"};
+
+	static boolean blocked(String key, SkyPriceConfig cfg) {
+		if (key == null) return true;
+		if (cfg.snipeBlock.contains(key)) return true;
+		if (cfg.snipeAllow.contains(key)) return false;
+		if (key.startsWith("PET") || key.equals("ENCHANTED_BOOK")) return true;
+		for (String b : BLOCK_CONTAINS) if (key.contains(b)) return true;
+		return false;
 	}
 
 	/** Cheap first look at a listing: item, identical-copy bucket, and whether it's at most half the lowest BIN. */
@@ -70,6 +91,29 @@ final class Sniper {
 	/** Called by FlipFeed at the end of a full scan. */
 	static void setRefs(Map<String, double[]> r) {
 		refs = r;
+	}
+
+	/** One snipable item: plain copies only, with the price that would trigger an alert. */
+	record Watch(String key, double lowest, int listed, double trigger) {}
+
+	/** Everything the sniper watches right now (≥ 3 identical copies listed, worth ≥ snipeMinValue, not blacklisted), most valuable first. */
+	static List<Watch> watchList() {
+		List<Watch> out = new ArrayList<>();
+		double need = Math.max(0, Math.min(0.95, cfg.snipeMinPercent / 100.0));
+		for (Map.Entry<String, double[]> e : refs.entrySet()) {
+			if (e.getKey().contains("#")) continue;
+			double[] r = e.getValue();
+			if (r[2] < 3 || r[0] < cfg.snipeMinValue || blocked(e.getKey(), cfg)) continue;
+			double trig = r[0] * (1 - need);
+			if (cfg.snipeMaxPrice > 0 && trig > cfg.snipeMaxPrice) continue;
+			out.add(new Watch(e.getKey(), r[0], (int) r[2], trig));
+		}
+		out.sort((a, b) -> Double.compare(b.lowest() * Math.min(b.listed(), 10), a.lowest() * Math.min(a.listed(), 10)));
+		return out;
+	}
+
+	static boolean ready() {
+		return !refs.isEmpty();
 	}
 
 	static synchronized Alert latest() {
@@ -283,6 +327,7 @@ final class Sniper {
 		long total = a.get("starting_bid").getAsLong();
 		Double purse = FcfPanel.purse();
 		if (purse != null && total > purse) return null;
+		if (cfg.snipeMaxPrice > 0 && total > cfg.snipeMaxPrice) return null;
 		String[] key = {null};
 		int[] count = {1};
 		String[] variant = {""};
@@ -292,10 +337,10 @@ final class Sniper {
 			return null;
 		}
 		String k = key[0];
-		if (k == null || k.startsWith("PET") || k.equals("ENCHANTED_BOOK")) return null;
+		if (blocked(k, cfg)) return null;
 		String bucket = variant[0] == null || variant[0].isEmpty() ? k : k + "#" + variant[0];
 		double[] r = refs.get(bucket);
-		if (r == null || r[2] < 3) return null;
+		if (r == null || r[2] < 3 || r[0] < cfg.snipeMinValue) return null;
 		long n = Math.max(1, count[0]);
 		double unit = (double) total / n;
 		double need = Math.max(0, Math.min(0.95, cfg.snipeMinPercent / 100.0));
@@ -312,6 +357,10 @@ final class Sniper {
 		List<double[]> week = SkyPriceClient.cofl == null ? null : SkyPriceClient.cofl.week(p.key(), true);
 		if (d == null || week == null) return PENDING;
 		if (manipulated(d)) return "the market is manipulated (spike / crash / buyout / inflated listings)";
+		Market.Erratic er = Market.erratic(week);
+		if (er.bad()) return "its sales are all over the place (" + HudFormatter.fmt(er.low()) + "–" + HudFormatter.fmt(er.high())
+				+ "): coin transfers / manipulation";
+		if (Market.salesPerDay(d) < cfg.snipeMinSalesPerDay) return "it barely sells (" + String.format(Locale.ROOT, "%.1f", Market.salesPerDay(d)) + "/day)";
 		Double fair = Verdict.fair(d);
 		double floor = FlipFeed.clearingFloor(week);
 		if (fair == null || fair <= 0 || floor <= 0) return "no real sales to price it against";

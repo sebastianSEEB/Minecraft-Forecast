@@ -314,6 +314,48 @@ public final class SkyPriceClient implements ClientModInitializer {
 									ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Undervalued-BIN alerts off."));
 									return 1;
 								}))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("min")
+										.then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("percent", IntegerArgumentType.integer(5, 95))
+												.executes(ctx -> {
+													config.snipeMinPercent = IntegerArgumentType.getInteger(ctx, "percent");
+													config.save();
+													ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Snipe alerts at " + (int) config.snipeMinPercent
+															+ "% or more under the lowest BIN."));
+													return 1;
+												})))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("max")
+										.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("price", StringArgumentType.word())
+												.executes(ctx -> {
+													Double v = parseAmount(StringArgumentType.getString(ctx, "price"));
+													if (v == null) {
+														ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Use a price like 20m, 500k or 0 (= your purse)."));
+														return 0;
+													}
+													config.snipeMaxPrice = v;
+													config.save();
+													ctx.getSource().sendFeedback(Component.literal("[SkyPrice] Snipes up to " + (v <= 0 ? "your purse" : HudFormatter.fmt(v)) + "."));
+													return 1;
+												})))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("block")
+										.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("id", StringArgumentType.word())
+												.executes(ctx -> {
+													String id = StringArgumentType.getString(ctx, "id").toUpperCase(Locale.ROOT);
+													if (!config.snipeBlock.contains(id)) config.snipeBlock.add(id);
+													config.snipeAllow.remove(id);
+													config.save();
+													ctx.getSource().sendFeedback(Component.literal("[SkyPrice] No snipe alerts for " + id + "."));
+													return 1;
+												})))
+								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("unblock")
+										.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("id", StringArgumentType.word())
+												.executes(ctx -> {
+													String id = StringArgumentType.getString(ctx, "id").toUpperCase(Locale.ROOT);
+													config.snipeBlock.remove(id);
+													if (!config.snipeAllow.contains(id)) config.snipeAllow.add(id);
+													config.save();
+													ctx.getSource().sendFeedback(Component.literal("[SkyPrice] " + id + " can be sniped again."));
+													return 1;
+												})))
 								.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("auto")
 										.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("on").executes(ctx -> {
 											config.snipeAutoOpen = true;
@@ -454,6 +496,22 @@ public final class SkyPriceClient implements ClientModInitializer {
 	}
 
 	/** Your player name (for "Seller: you" on your own listings), or null. */
+	/** "20m", "500k", "1.5b", "250000" → coins; null if unreadable. */
+	static Double parseAmount(String t) {
+		if (t == null) return null;
+		String v = t.trim().toLowerCase(Locale.ROOT).replace(",", "");
+		double mult = 1;
+		if (v.endsWith("k")) mult = 1e3;
+		else if (v.endsWith("m")) mult = 1e6;
+		else if (v.endsWith("b")) mult = 1e9;
+		if (mult > 1) v = v.substring(0, v.length() - 1);
+		try {
+			return Double.parseDouble(v) * mult;
+		} catch (NumberFormatException e) {
+			return null;
+		}
+	}
+
 	static String playerName() {
 		var p = Minecraft.getInstance().player;
 		return p == null ? null : p.getName().getString();

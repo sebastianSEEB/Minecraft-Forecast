@@ -30,7 +30,7 @@ final class FlipPanel {
 	private static final int BTN_W = 30, BTN_H = 14, W = 160, R2 = 20;
 	private static final int BG = 0xE8101418, EDGE = 0xFF1BAF7A, TEXT = 0xFFFFFFFF, MUTED = 0xFF8A8A8A, DIM = 0xFF5E5E5E,
 			GOOD = 0xFF55FF55, WARN = 0xFFFFFF55, BAD = 0xFFFF5555, GOLD = 0xFFFFAA00, CHIP = 0xE0202830, CHIP_ON = 0xFF1BAF7A;
-	private static final String[] TABS = {"AH", "Bazaar", "Craft", "Profit"};
+	private static final String[] TABS = {"AH", "Bazaar", "Craft", "Snipe", "Profit"};
 
 	private record Hit(int x1, int y1, int x2, int y2, Runnable action) {}
 
@@ -137,6 +137,7 @@ final class FlipPanel {
 				case 0 -> ah(q, s, x, y, w, bottom);
 				case 1 -> bazaar(q, x, y, w, bottom);
 				case 2 -> craft(q, x, y, w, bottom);
+				case 3 -> snipe(q, x, y, w, bottom);
 				default -> profit(q, x, y, w, bottom);
 			};
 			y = footer(q, x, y + 2, w);
@@ -441,6 +442,72 @@ final class FlipPanel {
 		}
 		String req = FcfPanel.str(r, "requires");
 		if (req != null) Chat.say(HudFormatter.line("   Requires: " + req, HudFormatter.YELLOW));
+	}
+
+	private static int watchPage;
+
+	/**
+	 * Snipe tab: the latest alerts (click = open the auction) and every item the sniper is watching with the price that
+	 * would trigger it, plus quick settings. Rules are in Sniper's class doc.
+	 */
+	private static int snipe(Highlight.Painter p, int x, int y, int w, int bottom) {
+		section(p, x, y, w, "Snipes", cfg.sniper ? "≤ " + Math.round(100 - cfg.snipeMinPercent) + "% of lowest BIN" : "off");
+		y += 12;
+		int cx = x + 3;
+		for (int pct : new int[]{25, 35, 50}) {
+			String t = pct + "% off";
+			chip(p, cx, y, t, Math.round(cfg.snipeMinPercent) == pct, () -> { cfg.snipeMinPercent = pct; cfg.save(); });
+			cx += chipW(t) + 2;
+		}
+		chip(p, cx, y, "auto-open", cfg.snipeAutoOpen, () -> { cfg.snipeAutoOpen = !cfg.snipeAutoOpen; cfg.save(); });
+		cx += chipW("auto-open") + 2;
+		chip(p, cx, y, cfg.sniper ? "on" : "off", cfg.sniper, () -> { cfg.sniper = !cfg.sniper; cfg.save(); });
+		y += 14;
+		if (!Sniper.ready()) {
+			p.text(FcfPanel.fit("Waiting for the first full AH scan (⟳ below)…", w - 8), x + 4, y, DIM);
+			return y + 11;
+		}
+		List<Sniper.Alert> al = Sniper.recent();
+		java.util.Collections.reverse(al);
+		long now = System.currentTimeMillis();
+		if (al.isEmpty()) {
+			p.text(FcfPanel.fit("No alerts yet. Big gaps are rare: try 25% off.", w - 8), x + 4, y, DIM);
+			y += 11;
+		}
+		for (int i = 0; i < al.size() && i < 5 && y + 20 <= bottom; i++) {
+			Sniper.Alert a = al.get(i);
+			boolean ok = a.status().equals("ok"), bad = a.status().startsWith("bad");
+			String mark = ok ? "✓ " : bad ? "✗ " : "… ";
+			String right = bad ? "skip" : "+" + HudFormatter.fmt(a.profit());
+			long ago = (now - a.at()) / 60000;
+			String detail = HudFormatter.fmt(a.price()) + " → " + HudFormatter.fmt(a.resale()) + " · " + (ago < 1 ? "just now" : ago + "m ago")
+					+ (bad ? " · " + a.status().substring(5) : "");
+			row(p, x, y, w, mark + a.name(), right, bad ? BAD : ok ? GOOD : 0xFFFFFF55, detail,
+					bad ? null : () -> Chat.command("viewauction " + a.uuid()));
+			y += 21;
+		}
+		List<Sniper.Watch> wl = Sniper.watchList();
+		int per = Math.max(1, (bottom - y - 14) / 10);
+		int pages = Math.max(1, (wl.size() + per - 1) / per);
+		watchPage = Math.min(watchPage, pages - 1);
+		section(p, x, y, w, "Watching " + wl.size(), "alert at ≤");
+		y += 11;
+		for (int i = watchPage * per; i < Math.min(wl.size(), (watchPage + 1) * per); i++) {
+			Sniper.Watch wt = wl.get(i);
+			String right = HudFormatter.fmt(wt.trigger());
+			String name = Bazaar.name(wt.key(), data);
+			p.text(FcfPanel.fit(name + "  " + HudFormatter.fmt(wt.lowest()) + " ×" + wt.listed(), w - width(right) - 12), x + 4, y, TEXT);
+			p.text(right, x + w - width(right) - 4, y, GOOD);
+			y += 10;
+		}
+		if (pages > 1) {
+			chip(p, x + 3, y + 1, "◀", false, () -> watchPage = Math.max(0, watchPage - 1));
+			String pg = (watchPage + 1) + "/" + pages;
+			p.text(pg, x + 3 + chipW("◀") + 4, y + 2, MUTED);
+			chip(p, x + 3 + chipW("◀") + 8 + width(pg), y + 1, "▶", false, () -> watchPage = Math.min(pages - 1, watchPage + 1));
+			y += 13;
+		}
+		return y;
 	}
 
 	private static int profit(Highlight.Painter p, int x, int y, int w, int bottom) {

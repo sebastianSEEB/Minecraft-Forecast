@@ -109,7 +109,12 @@ final class SkyPriceConfig {
 
 	boolean sniper = true;            // banner + ping when an undervalued BIN is listed (needs flipFeed for the reference prices)
 	double snipeMinPercent = 50;      // alert only when the BIN is at least this much under the lowest BIN of identical copies
-	boolean snipeAutoOpen = true;     // open the auction (/viewauction) by itself when an alert fires; you still press Buy
+	boolean snipeAutoOpen = true;
+	double snipeMaxPrice = 0;         // never alert above this price (0 = whatever fits your purse)
+	double snipeMinValue = 1_000_000; // skip items whose lowest BIN is under this (cheap junk gets relisted low all day)
+	double snipeMinSalesPerDay = 2;   // skip items that barely sell (you'd be stuck holding them)
+	java.util.List<String> snipeBlock = new java.util.ArrayList<>();   // your own blacklist (item IDs)
+	java.util.List<String> snipeAllow = new java.util.ArrayList<>();   // items taken off the built-in blacklist     // open the auction (/viewauction) by itself when an alert fires; you still press Buy
 	int cfgRev = 0;                   // settings migrations already applied
 
 	/** One-time changes to existing settings when a new version changes a default the player never chose. */

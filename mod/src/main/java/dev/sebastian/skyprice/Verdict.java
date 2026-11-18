@@ -195,6 +195,11 @@ final class Verdict {
 			}
 		}
 		if (price == null || fair == null || fair <= 0) return new Result(out, null);
+		// sale history all over the place (coin transfers, 100M "sales" of a cheap item): the fair value is meaningless
+		List<double[]> week = bz || SkyPriceClient.cofl == null ? null : SkyPriceClient.cofl.week(HudFormatter.str(d, "k"), false);
+		Market.Erratic er = bz ? null : Market.erratic(week);
+		boolean unreliable = er != null && er.bad();
+		if (unreliable) risk = Math.max(risk, 2);
 
 		double diff = price / fair - 1;
 		String pct = String.format(Locale.ROOT, "%.1f%%", Math.abs(diff) * 100);
@@ -207,12 +212,20 @@ final class Verdict {
 		else { label = "BAD BUY"; color = 0xFF5555; }
 		if (risk >= 2 && diff < 0.03) { label = "RISKY BUY"; color = 0xFFAA00; }
 		if (listing != null && !listing.bin()) { label = "BID CHECK"; color = 0x55FFFF; }
+		if (unreliable) { label = "NO RELIABLE PRICE"; color = 0xFFAA00; }
 
 		out.add(Component.empty()
 				.append(HudFormatter.seg(" ➜ " + label, color))
 				.append(HudFormatter.seg(": " + what + " " + HudFormatter.fmt(price) + " is " + pct
 						+ (diff < 0 ? " under " : " over ") + basis + " (" + HudFormatter.fmt(fair) + ")", HudFormatter.GRAY)));
 
+		if (unreliable) {
+			out.add(HudFormatter.line(String.format(Locale.ROOT, "    ⚠ sales this week are all over the place: %s to %s%s (%d sales)",
+					HudFormatter.fmt(er.low()), HudFormatter.fmt(er.high()), er.top() > er.high() * 2 ? ", one at " + HudFormatter.fmt(er.top()) : "",
+					er.sales()), HudFormatter.YELLOW));
+			out.add(HudFormatter.line("      likely coin transfers or manipulation: this 'fair value' can't be trusted, so no buy / flip advice",
+					HudFormatter.YELLOW));
+		}
 		if (!bz) {
 			Market.Liquidity liq = Market.liquidity(d, fair);
 			etaOut = liq.etaHours();
@@ -254,6 +267,8 @@ final class Verdict {
 				resale = Math.min(resale, est.value());
 			}
 			double sellAt = resale != null ? resale : fair;
+			double floor = week == null ? 0 : FlipFeed.clearingFloor(week);   // what the cheapest copies really sold for
+			if (floor > 0 && sellAt > Market.undercut(floor) && !upgraded) sellAt = Market.undercut(floor);
 			double net = netAfterFees(sellAt);
 
 			if (listing != null && !listing.bin()) {
@@ -305,7 +320,8 @@ final class Verdict {
 				if (profit > 0) {
 					out.add(HudFormatter.line("    flip ≈ ", HudFormatter.GRAY, "+" + HudFormatter.fmt(profit), 0x55FF55,
 							String.format(Locale.ROOT, " (%.1f%%) after AH fees, reselling at %s", ppct * 100, HudFormatter.fmt(sellAt))
-									+ (resale != null ? " (just under the next-cheapest BIN)" : ""), HudFormatter.DARK));
+									+ (floor > 0 && sellAt <= Market.undercut(floor) + 1 ? " (what the cheapest copies really sold for)"
+											: resale != null ? " (just under the next-cheapest BIN)" : ""), HudFormatter.DARK));
 				} else {
 					out.add(HudFormatter.line("    ✘ no flip profit after fees (resale ≈ " + HudFormatter.fmt(sellAt) + ")", HudFormatter.DARK));
 				}

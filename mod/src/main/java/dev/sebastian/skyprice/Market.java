@@ -31,6 +31,34 @@ final class Market {
 		return n % 2 == 1 ? s.get(n / 2) : (s.get(n / 2 - 1) + s.get(n / 2)) / 2;
 	}
 
+	/**
+	 * Is this item's sale history too erratic to trust? Thin markets with sales at wildly different prices (coin
+	 * transfers between friends, "sales" at 100M of a 1M item) make any median meaningless.
+	 * @param low / high   the 25th / 75th percentile sale price (volume-weighted period averages)
+	 */
+	record Erratic(boolean bad, double low, double high, double top, int sales) {}
+
+	/** Pure. week = SkyCofl points {time, min, max, avg, volume}. Not "bad" when there's too little to tell (< 3 sales). */
+	static Erratic erratic(List<double[]> week) {
+		if (week == null) return new Erratic(false, 0, 0, 0, 0);
+		List<Double> prices = new ArrayList<>();
+		double top = 0;
+		int sales = 0;
+		for (double[] p : week) {
+			if (p[4] <= 0 || !(p[3] > 0)) continue;
+			int v = (int) Math.round(p[4]);
+			sales += v;
+			for (int i = 0; i < Math.min(v, 5); i++) prices.add(p[3]);
+			top = Math.max(top, p[2]);
+		}
+		if (sales < 3 || prices.size() < 3) return new Erratic(false, 0, 0, top, sales);
+		prices.sort(Double::compare);
+		double lo = prices.get((int) Math.floor((prices.size() - 1) * 0.25)), hi = prices.get((int) Math.ceil((prices.size() - 1) * 0.75));
+		double med = median(prices);
+		boolean bad = (lo > 0 && hi / lo >= 2.5) || (top >= 5 * med && sales < 20);
+		return new Erratic(bad, lo, hi, top, sales);
+	}
+
 	/** Sales per day of an auction item doc (0 = unknown / never sells). */
 	static double salesPerDay(JsonObject d) {
 		Double s24 = HudFormatter.num(HudFormatter.obj(d, "summary"), "sales");
