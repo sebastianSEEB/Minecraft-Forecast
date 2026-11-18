@@ -441,18 +441,48 @@ final class Sniper {
 		bannerAt = System.currentTimeMillis();
 	}
 
+	private static volatile Object viewItem;                   // the BIN being shown, and what it's worth flipping
+	private static volatile Double viewProfit;
+	private static volatile long viewAt, profitSeenAt;
+
 	/**
-	 * After an alert (last 60 s): a thick blinking box on Hypixel's "Buy Item Right Now" and "Confirm" buttons, so your
-	 * eyes and mouse go straight there. Green when the snipe is checked, yellow while checking, none for ✗.
+	 * Hypixel's "BIN Auction View": if the item shown is a real flip (the same verdict as its tooltip: profit after fees,
+	 * sells often enough, reliable price, not manipulated — or a ✓ snipe alert), "Buy Item Right Now" gets a thick
+	 * blinking green box with the profit next to it; the "Confirm" button that follows gets the same. Nothing for
+	 * listings that aren't profitable or are still being checked.
 	 */
 	static void paintButtons(Highlight.Painter p, net.minecraft.client.gui.screens.Screen s) {
-		Alert a = latest();
-		if (a == null || System.currentTimeMillis() - a.at() > 60_000 || a.status().startsWith("bad")) return;
 		if (!(s instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?> acs)) return;
 		String t = s.getTitle().getString().toLowerCase(Locale.ROOT);
-		if (!t.contains("auction view") && !t.contains("confirm")) return;
+		boolean view = t.contains("auction view"), confirm = t.contains("confirm");
+		if (!view && !confirm) return;
+		long now = System.currentTimeMillis();
+		Double profit = null;
+		if (view) {
+			for (net.minecraft.world.inventory.Slot sl : acs.getMenu().slots) {      // the auctioned item: lore has "Buy it now"
+				var st = sl.getItem();
+				if (st == null || st.isEmpty()) continue;
+				var lore = st.get(net.minecraft.core.component.DataComponents.LORE);
+				if (lore == null || lore.lines().stream().noneMatch(c -> c.getString().replaceAll("§.", "").startsWith("Buy it now"))) continue;
+				if (st != viewItem || now - viewAt > 1000) {                       // re-check once a second
+					viewItem = st;
+					viewAt = now;
+					Alert a = latest();
+					boolean alertOk = a != null && now - a.at() < 60_000 && a.status().equals("ok")
+							&& st.getHoverName().getString().replaceAll("§.", "").contains(a.name());
+					Double v = SkyPriceClient.binProfit(st);
+					viewProfit = v != null ? v : alertOk ? a.profit() : null;
+				}
+				profit = viewProfit;
+				break;
+			}
+			if (profit != null) profitSeenAt = now;
+		} else if (now - profitSeenAt < 15_000) {
+			profit = viewProfit;                                                     // Confirm right after a profitable view
+		}
+		if (profit == null) return;
 		int[] box = GuiPos.box(s);
-		int col = (System.currentTimeMillis() / 250) % 2 == 0 ? (a.status().equals("ok") ? 0xFF55FF55 : 0xFFFFFF55) : 0xFFFFFFFF;
+		int col = (now / 250) % 2 == 0 ? 0xFF55FF55 : 0xFFFFFFFF;
 		for (net.minecraft.world.inventory.Slot sl : acs.getMenu().slots) {
 			if (sl.getItem() == null || sl.getItem().isEmpty()) continue;
 			String n = sl.getItem().getHoverName().getString().replaceAll("§.", "").toLowerCase(Locale.ROOT);
@@ -464,6 +494,10 @@ final class Sniper {
 				p.fill(x - k, y - k, x - k + 1, y + 16 + k, col);
 				p.fill(x + 16 + k - 1, y - k, x + 16 + k, y + 16 + k, col);
 			}
+			String label = "+" + HudFormatter.fmt(profit) + " profit";
+			int lw = Minecraft.getInstance().font.width(label);
+			p.fill(x + 8 - lw / 2 - 3, y + 21, x + 8 + lw / 2 + 3, y + 32, 0xE0103010);
+			p.text(label, x + 8 - lw / 2, y + 23, 0xFF55FF55);
 		}
 	}
 

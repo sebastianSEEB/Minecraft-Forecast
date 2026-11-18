@@ -470,6 +470,24 @@ public final class SkyPriceClient implements ClientModInitializer {
 		return d;
 	}
 
+	/**
+	 * Flip profit (after fees) of the BIN shown in an auction view, using the same verdict as the tooltip — only when it
+	 * is a real PROFIT FLIP (sells often enough, reliable price, not manipulated). Null otherwise or while loading.
+	 */
+	static Double binProfit(net.minecraft.world.item.ItemStack stack) {
+		String key = ItemKeys.keyFor(stack);
+		if (key == null) return null;
+		net.minecraft.world.item.component.ItemLore lore = stack.get(net.minecraft.core.component.DataComponents.LORE);
+		List<Component> lines = new java.util.ArrayList<>();
+		lines.add(stack.getHoverName());
+		if (lore != null) lines.addAll(lore.lines());
+		Verdict.Listing listing = Verdict.listing(lines, stack.getCount());
+		if (listing == null || !listing.bin()) return null;
+		Verdict.Result r = resultFor(key, listing, config.valueUpgrades ? Valuation.parse(stack) : null, null);
+		if (r == null || r.banner() == null || r.profit() == null || r.profit() <= 0) return null;
+		return r.profit();
+	}
+
 	private static Verdict.Result resultFor(String key, Verdict.Listing listing, Valuation.Attrs attrs, Verdict.Mine mine) {
 		if (attrs != null && attrs.pet && attrs.petLevel > 0) {
 			JsonObject pd = petDoc(key, attrs.petLevel, true);

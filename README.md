@@ -314,6 +314,10 @@ Normal ≥5 % + 4/day, Bold ≥3 % + 1/day) and how long you'll wait to resell (
   < 20 sales. Tooltips then say **NO RELIABLE PRICE** instead of GREAT BUY / PROFIT FLIP, and such items never show up
   as flips or snipes. Tooltip resale is also capped at what the cheapest copies really sold for.
 - No auto-buy: buying stays two clicks of yours (Hypixel bans automated buying).
+- **Buy button highlight (1.27.1+)**: in any *BIN Auction View* (from a snipe or not), when the item is a real flip — the
+  same verdict as its tooltip: profit after fees, sells often enough, reliable price, not manipulated (or a ✓ snipe) —
+  *Buy Item Right Now* blinks green with "+X profit" under it, and so does *Confirm* on the next screen. No highlight
+  when there's no profit or the price can't be trusted.
 
 ### Fastest sniper (mod 1.26.0+)
 
