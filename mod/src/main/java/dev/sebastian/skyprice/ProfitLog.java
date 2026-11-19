@@ -238,6 +238,17 @@ final class ProfitLog {
 				HudFormatter.GRAY));
 	}
 
+	/** Coins you traded (bought + sold) since `from`: {bazaar, auction house}. */
+	static double[] volume(long from) {
+		double bz = 0, ah = 0;
+		for (Trade t : snapshot()) {
+			if (t.ts() < from) continue;
+			if ("BZ".equals(t.market())) bz += Math.abs(t.coins());
+			else ah += Math.abs(t.coins());
+		}
+		return new double[]{bz, ah};
+	}
+
 	private static synchronized List<Trade> snapshot() {
 		load();
 		return new ArrayList<>(trades);

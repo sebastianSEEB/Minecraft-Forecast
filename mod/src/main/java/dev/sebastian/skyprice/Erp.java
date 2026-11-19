@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 
 import com.google.gson.JsonArray;
@@ -523,6 +524,10 @@ final class Erp {
 			my += 15;
 		}
 		int cx = x + mw + 8, cw = w - mw - 8;
+		if (biView.equals("shares")) {                               // markets need no AH positions
+			biShares(p, cx, y, cw, h, n, pos);
+			return;
+		}
 		if (f == null || n == null) return;
 		switch (biView) {
 			case "shares" -> biShares(p, cx, y, cw, h, n, pos);
@@ -594,7 +599,23 @@ final class Erp {
 		p.text("Data is updated with every AH scan", x + (w - w("Data is updated with every AH scan")) / 2, y + h - 10, BLUE);
 	}
 
+	private static boolean sharesMarkets = true;
+
 	private static void biShares(Highlight.Painter p, int x, int y, int w, int h, JsonObject n, List<JsonObject> pos) {
+		int cx0 = x + w;
+		for (String[] t : new String[][]{{"you", "Your coins"}, {"mk", "Markets"}}) {
+			boolean sel = t[0].equals("mk") == sharesMarkets;
+			cx0 -= w(t[1]) + 8;
+			p.fill(cx0, y - 2, cx0 + w(t[1]) + 4, y + 9, sel ? 0xFFFFDCCB : 0xFFF3F3F3);
+			p.text(t[1], cx0 + 2, y, INK);
+			final boolean mk = t[0].equals("mk");
+			btn(cx0, y - 2, cx0 + w(t[1]) + 4, y + 9, () -> sharesMarkets = mk);
+		}
+		if (sharesMarkets) {
+			biMarkets(p, x, y, w, h);
+			return;
+		}
+		if (n == null) return;
 		p.text("Where your coins are", x, y, INK);
 		Double purse = FcfPanel.purse();
 		JsonObject wn = HudFormatter.obj(FcfPanel.report(), "now");
@@ -633,6 +654,79 @@ final class Erp {
 			if (r2 != null) btn(lx, ly - 1, x + w, ly + 9, r2);
 			ly += 11;
 		}
+	}
+
+	private static final String[] CAT_ORDER = {"weapon", "armor", "accessories", "consumables", "blocks", "pets", "misc"};
+
+	/**
+	 * Coins traded per day on each market: Bazaar (from its weekly volumes), Auction House split into BIN and normal
+	 * auctions (measured from Hypixel's ended-auctions feed while you play, see AhMarket), the AH by category, the
+	 * busiest bazaar products, and your own share (your logged trades of the last 24 h).
+	 */
+	private static void biMarkets(Highlight.Painter p, int x, int y, int w, int h) {
+		p.text("Coins traded per day", x, y, INK);
+		Map<String, Double> bzMap = AhMarket.bazaarPerDay(data.bazaarAll());
+		double bz = 0;
+		for (double v : bzMap.values()) bz += v;
+		AhMarket.Day ah = AhMarket.day();
+		double[] v = {bz, ah.bin(), ah.auction()};
+		String[] labels = {"Bazaar", "AH – BIN", "AH – auctions"};
+		double total = bz + ah.total();
+		int r = Math.min(40, (h - 40) / 3);
+		int cx = x + r + 4, cy = y + 16 + r;
+		if (total > 0) FcfPanel.pie(p, cx, cy, r, v, total);
+		int lx = cx + r + 14, ly = y + 16;
+		for (int i = 0; i < 3; i++) {
+			p.fill(lx, ly + 1, lx + 16, ly + 7, FcfPanel.SLICE[i]);
+			p.text(labels[i], lx + 20, ly, INK);
+			String val = fmt(v[i]) + "/day" + String.format(Locale.ROOT, "  %.0f%%", total > 0 ? 100 * v[i] / total : 0);
+			p.text(val, x + w - w(val), ly, INK);
+			ly += 12;
+		}
+		p.fill(lx, ly, x + w, ly + 1, LINE);
+		p.text("Total", lx + 20, ly + 3, INK);
+		p.text(fmt(total) + "/day", x + w - w(fmt(total) + "/day"), ly + 3, INK);
+		ly += 15;
+		String note = ah.hoursMeasured() <= 0 ? "AH: measuring… (Hypixel's sold-auctions feed, every 30 s while you play)"
+				: ah.scaled() ? String.format(Locale.ROOT, "AH measured over %.1f h, scaled to a day · %d sales/day", ah.hoursMeasured(), ah.sales())
+				: "AH: last 24 h · " + ah.sales() + " sales";
+		p.text(FcfPanel.fit(note, x + w - lx), lx, ly, MUTED);
+		ly += 11;
+		double[] mine = ProfitLog.volume(System.currentTimeMillis() - 86_400_000L);
+		String you = String.format(Locale.ROOT, "You (24 h): bazaar %s (%s of it) · AH %s (%s)", fmt(mine[0]),
+				share(mine[0], bz), fmt(mine[1]), share(mine[1], ah.total()));
+		p.text(FcfPanel.fit(you, x + w - lx), lx, ly, INK);
+		// lower half: AH by category | busiest bazaar products
+		int by = Math.max(cy + r + 10, ly + 14), half = (w - 10) / 2;
+		p.text("AH by category", x, by, INK);
+		p.text("Busiest bazaar products", x + half + 10, by, INK);
+		int ry = by + 12;
+		double catTotal = 0;
+		for (double c : ah.byCategory().values()) catTotal += c;
+		for (String c : CAT_ORDER) {
+			Double cv = ah.byCategory().get(c);
+			if (cv == null || cv <= 0 || ry > y + h - 10) continue;
+			int bw = (int) ((half - 90) * cv / Math.max(1, catTotal));
+			p.fill(x + 62, ry + 1, x + 62 + Math.max(1, bw), ry + 7, 0xFFEDA100);
+			p.text(Character.toUpperCase(c.charAt(0)) + c.substring(1), x, ry, INK);
+			String val = fmt(cv);
+			p.text(val, x + half - w(val), ry, MUTED);
+			ry += 10;
+		}
+		int ry2 = by + 12;
+		for (Map.Entry<String, Double> e : AhMarket.top(bzMap, 8)) {
+			if (ry2 > y + h - 10) break;
+			String val = fmt(e.getValue());
+			p.text(FcfPanel.fit(Bazaar.name(e.getKey(), data), half - w(val) - 6), x + half + 10, ry2, INK);
+			p.text(val, x + w - w(val), ry2, MUTED);
+			ry2 += 10;
+		}
+	}
+
+	private static String share(double mine, double market) {
+		if (market <= 0 || mine <= 0) return "0%";
+		double pct = 100 * mine / market;
+		return pct >= 0.1 ? String.format(Locale.ROOT, "%.1f%%", pct) : String.format(Locale.ROOT, "%.4f%%", pct);
 	}
 
 	/** Income-statement style: what your open positions are worth against what you paid / asked. */

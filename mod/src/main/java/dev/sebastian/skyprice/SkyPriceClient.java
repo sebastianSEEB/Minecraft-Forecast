@@ -78,6 +78,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		FlipFeed.init(config);
 		Sniper.init(config);
 		Bidders.init(config);
+		AhMarket.init();
 		FlipPanel.init(config, data);
 		SignFill.init(config, data);
 		PriceChart.init(config);
@@ -91,6 +92,7 @@ public final class SkyPriceClient implements ClientModInitializer {
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			if (client.player != null && ticks[0] % 200 == 0) {          // every 10 s
 				try {
+					AhMarket.tick();                                   // AH sales per day (market shares)
 					AhScanner.tick(config);                                // scans every scanMinutes
 					BzOrders.check();                                      // bazaar orders outbid / undercut (every 30 s)
 					if (config.setupDone) FlipFeed.tick(FlipPanel.budget());   // announce the best new AH flips
