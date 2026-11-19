@@ -31,10 +31,14 @@ import net.minecraft.client.gui.screens.Screen;
  * Clicks inside the desk never reach the inventory. Clicking a row opens that auction with /viewauction; you act yourself.
  */
 final class Desk {
-	// dark theme, same family as the FLIP panel
-	private static final int BG = 0xF00B0F13, PANEL = 0xFF151B21, SIDE = 0xFF11161B, INK = 0xFFE4E8EC, MUTED = 0xFF8A949E,
-			LINE = 0xFF27313A, ORANGE = 0xFFFFAA00, GREEN = 0xFF4CC46A, RED = 0xFFFF5F57, AMBER = 0xFFE8A317,
-			BLUE = 0xFF5AA9F0, LILAC = 0xFFB59CF2, YELLOW = 0xFFE8C547, CHIP = 0xFF222B33, SEL = 0xFF3D3214, CARD = 0xFF1B232B;
+	// looks like a normal Minecraft menu: light grey container with bevelled edges, dark text, stone buttons;
+	// dark boxes (stat slots, to-do notes) use the game's own chat colours
+	private static final int BG = 0xC0101010, PANEL = 0xFFC6C6C6, INK = 0xFF404040, MUTED = 0xFF6E6E6E, LINE = 0xFF9E9E9E,
+			ORANGE = 0xFF9C6500, GREEN = 0xFF1F7F1F, RED = 0xFFAA2020, AMBER = 0xFF9C6500, BLUE = 0xFF2A55A8,
+			LILAC = 0xFF6E44B4, YELLOW = 0xFF7F7200, CHIP = 0xFF6F6F6F, ZEBRA = 0xFFBDBDBD;
+	// chat colours (§a §c §6 §e §7 §f) for text on dark boxes
+	private static final int C_GREEN = 0xFF55FF55, C_RED = 0xFFFF5555, C_GOLD = 0xFFFFAA00, C_YELLOW = 0xFFFFFF55,
+			C_GRAY = 0xFFAAAAAA, C_WHITE = 0xFFFFFFFF, C_AQUA = 0xFF55FFFF;
 	static final String[] DEFAULT_BAZAAR = {"STOCK_OF_STONKS", "ULTIMATE_CARROT_CANDY", "SUPERB_CARROT_CANDY", "GREAT_CARROT_CANDY",
 			"SIMPLE_CARROT_CANDY", "PURPLE_CANDY", "GREEN_CANDY", "DARK_CANDY", "ROCK_CANDY"};
 
@@ -182,7 +186,7 @@ final class Desk {
 		if (e == null) return "";
 		long mins = (long) ((e - System.currentTimeMillis()) / 60000);
 		if (mins <= 0) return "ended";
-		return mins < 60 ? mins + "m" : mins < 48 * 60 ? (mins / 60) + "h " + (mins % 60) + "m" : (mins / 1440) + "d";
+		return mins < 60 ? mins + "m" : mins < 24 * 60 ? (mins / 60) + "h " + (mins % 60) + "m" : (mins / 1440) + "d " + (mins % 1440) / 60 + "h";
 	}
 
 	private static Double walletNow(JsonObject n) {
@@ -202,51 +206,81 @@ final class Desk {
 		return uuid == null ? null : () -> Cmd.viewAuction(uuid);
 	}
 
+	// ================================================================== Minecraft-style drawing
+	/** A menu container: black edge, white top-left highlight, grey bottom-right shadow (like the inventory). */
+	private static void panel(Highlight.Painter p, int x1, int y1, int x2, int y2) {
+		p.fill(x1, y1, x2, y2, 0xFF000000);
+		p.fill(x1 + 1, y1 + 1, x2 - 1, y2 - 1, 0xFF555555);
+		p.fill(x1 + 1, y1 + 1, x2 - 2, y2 - 2, 0xFFFFFFFF);
+		p.fill(x1 + 2, y1 + 2, x2 - 2, y2 - 2, PANEL);
+	}
+
+	/** A sunken box like an item slot, filled dark so chat colours read well. */
+	private static void slot(Highlight.Painter p, int x1, int y1, int x2, int y2) {
+		p.fill(x1, y1, x2, y2, 0xFFFFFFFF);
+		p.fill(x1, y1, x2 - 1, y2 - 1, 0xFF373737);
+		p.fill(x1 + 1, y1 + 1, x2 - 1, y2 - 1, 0xFF5A5A5A);
+	}
+
+	/** A note in the style of an item tooltip (dark purple background, purple edge). */
+	private static void note(Highlight.Painter p, int x1, int y1, int x2, int y2, int edge) {
+		p.fill(x1, y1, x2, y2, 0xF0100010);
+		p.fill(x1 + 1, y1 + 1, x2 - 1, y1 + 2, 0x505000FF);
+		p.fill(x1 + 1, y2 - 2, x2 - 1, y2 - 1, 0x5028007F);
+		p.fill(x1 + 1, y1 + 2, x1 + 2, y2 - 2, 0x505000FF);
+		p.fill(x2 - 2, y1 + 2, x2 - 1, y2 - 2, 0x5028007F);
+		if (edge != 0) p.fill(x1 + 2, y1 + 2, x1 + 4, y2 - 2, edge);
+	}
+
+	/** A stone button. Selected = white frame and yellow text, like a hovered button in the game menus. */
+	private static void button(Highlight.Painter p, int x1, int y1, int x2, int y2, String label, boolean sel, Runnable r) {
+		p.fill(x1, y1, x2, y2, sel ? 0xFFFFFFFF : 0xFF000000);
+		p.fill(x1 + 1, y1 + 1, x2 - 1, y2 - 1, 0xFF6F6F6F);
+		p.fill(x1 + 1, y1 + 1, x2 - 1, y1 + 2, 0xFFA8A8A8);
+		p.fill(x1 + 1, y2 - 2, x2 - 1, y2 - 1, 0xFF4A4A4A);
+		p.text(label, x1 + (x2 - x1 - w(label)) / 2, y1 + (y2 - y1 - 8) / 2 + 1, sel ? C_YELLOW : 0xFFE0E0E0);
+		if (r != null) btn(x1, y1, x2, y2, r);
+	}
+
 	// ================================================================== sidebar (sections)
 	/** id, name, one-line description shown next to the title. */
 	private static final String[][] SECTIONS = {
 			{"home", "Home", "what needs you right now"},
-			{"stock", "Stock", "everything you have on the auction house"},
-			{"buying", "Buying", "your bids"},
-			{"selling", "Selling", "your listings"},
-			{"finance", "Finance", "your coins and your profit"},
-			{"market", "Market", "bazaar prices and tips"}};
+			{"stock", "My Auctions", "everything you have on the auction house"},
+			{"buying", "Bids", "auctions you bid on"},
+			{"selling", "Listings", "items you are selling"},
+			{"finance", "Coins", "your coins and your profit"},
+			{"market", "Bazaar", "prices and tips"}};
 
 	private static void sidebar(Highlight.Painter p, int x, int y, int w, int H, JsonObject n, List<JsonObject> pos) {
-		p.fill(x, y, x + w, y + H, SIDE);
-		p.fill(x + w - 1, y, x + w, y + H, LINE);
-		int ix = x + 8, ly = y + 8;
-		p.text("Trade Desk", ix, ly, ORANGE);
-		p.text("✕", x + w - 14, ly, MUTED);
-		btn(x + w - 18, ly - 3, x + w - 2, ly + 10, () -> on = false);
-		ly += 20;
+		int x1 = x + 4, x2 = x + w - 2, y1 = y + 6, y2 = H - 6;
+		panel(p, x1, y1, x2, y2);
+		int ix = x1 + 7, ly = y1 + 7;
+		p.text("Trade Desk", ix, ly, INK);
+		button(p, x2 - 16, ly - 3, x2 - 5, ly + 9, "x", false, () -> on = false);
+		ly += 15;
 		for (String[] sct : SECTIONS) {
-			boolean sel = win.equals(sct[0]);
-			if (sel) {
-				p.fill(x, ly - 3, x + w - 1, ly + 12, SEL);
-				p.fill(x, ly - 3, x + 2, ly + 12, ORANGE);
-			}
-			p.text(sct[1], ix, ly + 1, sel ? ORANGE : INK);
-			int badge = badge(sct[0], n, pos);
+			final String id = sct[0];
+			button(p, x1 + 5, ly, x2 - 5, ly + 18, sct[1], win.equals(id), () -> open(id));
+			int badge = badge(id, n, pos);
 			if (badge > 0) {
 				String b = String.valueOf(badge);
-				int bc = sct[0].equals("market") ? BLUE : RED;
-				p.fill(x + w - 14 - w(b), ly, x + w - 8, ly + 10, bc);
-				p.text(b, x + w - 11 - w(b), ly + 1, 0xFFFFFFFF);
+				int bx = x2 - 6 - w(b) - 4;
+				p.fill(bx - 1, ly - 2, bx + w(b) + 3, ly + 9, 0xFF000000);
+				p.fill(bx, ly - 1, bx + w(b) + 2, ly + 8, id.equals("market") ? 0xFF2A55A8 : 0xFFAA2020);
+				p.text(b, bx + 1, ly, C_WHITE);
 			}
-			final String id = sct[0];
-			btn(x, ly - 3, x + w - 1, ly + 12, () -> open(id));
-			ly += 17;
+			ly += 21;
 		}
-		// footer: cash + data age
+		// footer: purse + bank, data age
 		Double wallet = walletNow(n);
-		int fy = H - 34;
-		p.fill(ix, fy - 4, x + w - 8, fy - 3, LINE);
-		p.text("Cash", ix, fy, MUTED);
+		int fy = y2 - 30;
+		slot(p, x1 + 5, fy, x2 - 5, y2 - 6);
 		String cash = wallet == null ? "?" : fmt(wallet);
-		p.text(cash, x + w - 8 - w(cash), fy, INK);
+		p.text("Coins", x1 + 9, fy + 4, C_GRAY);
+		p.text(cash, x2 - 9 - w(cash), fy + 4, C_GOLD);
 		long mins = FcfPanel.fetchedAt() == 0 ? -1 : (long) ((System.currentTimeMillis() - d(HudFormatter.obj(FcfPanel.report(), "fcf"), "updated")) / 60000);
-		p.text(FcfPanel.fit(mins < 0 ? "no AH scan yet" : "updated " + (mins < 1 ? "just now" : mins + " min ago"), w - 16), ix, fy + 12, MUTED);
+		p.text(FcfPanel.fit(mins < 0 ? "not checked yet" : mins < 1 ? "just now" : mins + " min ago", x2 - x1 - 18), x1 + 9, fy + 14, C_GRAY);
 	}
 
 	/** Red number = things that need you (Market: blue = strong tips). */
@@ -264,13 +298,10 @@ final class Desk {
 	private static void window(Highlight.Painter p, int x, int y, int w, int h, JsonObject n, List<JsonObject> pos) {
 		String title = win, sub = "";
 		for (String[] t : SECTIONS) if (t[0].equals(win)) { title = t[1]; sub = t[2]; }
-		p.fill(x, y, x + w, y + h, PANEL);
-		p.fill(x, y, x + w, y + 1, LINE);
-		p.fill(x, y + h - 1, x + w, y + h, LINE);
-		p.text(title, x + 6, y + 5, INK);
-		p.fill(x + 6, y + 15, x + 6 + w(title), y + 16, ORANGE);
-		p.text(FcfPanel.fit(sub, w - w(title) - 20), x + 12 + w(title), y + 5, MUTED);
-		int bx = x + 6, by = y + 21, bw = w - 12, bh = h - 25;
+		panel(p, x, y, x + w, y + h);
+		p.text(title, x + 8, y + 7, INK);
+		p.text(FcfPanel.fit("- " + sub, w - w(title) - 24), x + 12 + w(title), y + 7, MUTED);
+		int bx = x + 8, by = y + 22, bw = w - 16, bh = h - 28;
 		boolean needsAh = !win.equals("market") && !win.equals("home");
 		if (needsAh && n == null) {
 			p.text(FcfPanel.report() == null ? "Loading your auctions…" : "No auctions found yet. Your auctions are checked every 15 min.", bx, by + 4, MUTED);
@@ -304,16 +335,16 @@ final class Desk {
 		for (int i = 0; i < cols.length; i++) {
 			String hd = cols[i].head();
 			int tx = cols[i].right() ? cx[i + 1] - 3 - w(hd) : cx[i] + 2;
-			p.text(hd, tx, y, MUTED);
+			p.text(hd, tx, y, INK);
 		}
-		p.fill(x, y + 10, x + w, y + 11, LINE);
+		p.fill(x, y + 10, x + w, y + 11, 0xFF8B8B8B);
 		int rowH = 12, avail = h - 14 - (foot != null ? 12 : 0) - 10;
 		int per = Math.max(1, avail / rowH), pages = Math.max(1, (rows.size() + per - 1) / per);
 		page = Math.min(page, pages - 1);
 		int ry = y + 14;
 		for (int r = page * per; r < Math.min(rows.size(), (page + 1) * per); r++) {
 			Row row = rows.get(r);
-			if (r % 2 == 1) p.fill(x, ry - 2, x + w, ry + 10, 0xFF182027);
+			if (r % 2 == 1) p.fill(x, ry - 2, x + w, ry + 10, ZEBRA);
 			for (int i = 0; i < cols.length; i++) {
 				String c = row.cells()[i] == null ? "" : row.cells()[i];
 				int colW = cx[i + 1] - cx[i] - 5;
@@ -335,7 +366,7 @@ final class Desk {
 		int fy = y + h - 10;
 		if (foot != null) p.text(FcfPanel.fit(foot, w - 50), x, fy, MUTED);
 		if (pages > 1) {
-			String pg = "◀ " + (page + 1) + "/" + pages + " ▶";
+			String pg = "< " + (page + 1) + "/" + pages + " >";
 			int px = x + w - w(pg);
 			p.text(pg, px, fy, BLUE);
 			btn(px - 2, fy - 2, px + 8, fy + 9, () -> page = Math.max(0, page - 1));
@@ -344,10 +375,8 @@ final class Desk {
 	}
 
 	private static int chip(Highlight.Painter p, int x, int y, String label, boolean sel, Runnable r) {
-		int cw = w(label) + 8;
-		p.fill(x, y - 2, x + cw, y + 9, sel ? SEL : CHIP);
-		p.text(label, x + 4, y, sel ? ORANGE : INK);
-		btn(x, y - 2, x + cw, y + 9, r);
+		int cw = w(label) + 10;
+		button(p, x, y - 3, x + cw, y + 10, label, sel, r);
 		return x + cw + 3;
 	}
 
@@ -359,38 +388,37 @@ final class Desk {
 		for (JsonObject o : pos) if (toCollect(o)) collect += collectAmount(o);
 		double today = ProfitLog.summary(ProfitLog.startOfDay(0)).profit();
 		Object[][] tiles = {
-				{"Cash", wallet == null ? "?" : fmt(wallet), INK, "finance"},
-				{"On the AH", fmt(onAh(n)), INK, "stock"},
-				{"To collect", fmt(collect), collect > 0 ? GREEN : INK, "stock"},
-				{"Profit today", signed(today), today >= 0 ? GREEN : RED, "finance"}};
+				{"Coins", wallet == null ? "?" : fmt(wallet), C_GOLD, "finance"},
+				{"On the AH", fmt(onAh(n)), C_WHITE, "stock"},
+				{"To collect", fmt(collect), collect > 0 ? C_GREEN : C_WHITE, "stock"},
+				{"Profit today", signed(today), today >= 0 ? C_GREEN : C_RED, "finance"}};
 		int gap = 4, tw = (w - gap * 3) / 4, th = 26;
 		for (int i = 0; i < tiles.length; i++) {
 			int tx = x + i * (tw + gap);
-			p.fill(tx, y, tx + tw, y + th, CARD);
-			p.text((String) tiles[i][0], tx + 5, y + 4, MUTED);
+			slot(p, tx, y, tx + tw, y + th);
+			p.text((String) tiles[i][0], tx + 5, y + 4, C_GRAY);
 			p.text(FcfPanel.fit((String) tiles[i][1], tw - 10), tx + 5, y + 15, (int) tiles[i][2]);
 			final String to = (String) tiles[i][3];
 			final boolean collectTile = tiles[i][0].equals("To collect");
 			btn(tx, y, tx + tw, y + th, () -> { open(to); if (collectTile) stockFilter = "collect"; });
 		}
 		int ty = y + th + 8;
-		int leftW = (int) (w * 0.60), rx = x + leftW + 10, rw = w - leftW - 10;
+		int leftW = (int) (w * 0.62), rx = x + leftW + 10, rw = w - leftW - 10;
 
 		// to-do list
 		List<Todo> todos = todos(n, pos);
 		long needs = todos.stream().filter(t -> t.level() <= 1).count();
 		p.text("To do", x, ty, INK);
-		p.text(needs == 0 ? "nothing urgent" : needs + " need" + (needs == 1 ? "s" : "") + " you", x + w("To do") + 6, ty, needs == 0 ? GREEN : AMBER);
+		p.text(needs == 0 ? "- nothing urgent" : "- " + needs + " need" + (needs == 1 ? "s" : "") + " you", x + w("To do") + 5, ty, needs == 0 ? GREEN : RED);
 		int cy = ty + 12, shown = 0;
 		for (Todo t : todos) {
 			if (cy > y + h - 24) break;
-			int col = t.level() == 0 ? RED : t.level() == 1 ? AMBER : t.level() == 2 ? GREEN : BLUE;
-			p.fill(x, cy, x + leftW, cy + 21, CARD);
-			p.fill(x, cy, x + 3, cy + 21, col);
-			p.text(FcfPanel.fit(t.title(), leftW - 20), x + 7, cy + 2, INK);
-			p.text(FcfPanel.fit(t.text(), leftW - 20), x + 7, cy + 11, MUTED);
+			int col = t.level() == 0 ? C_RED : t.level() == 1 ? C_GOLD : t.level() == 2 ? C_GREEN : C_AQUA;
+			note(p, x, cy, x + leftW, cy + 21, 0);
+			p.text(FcfPanel.fit(t.title(), leftW - 20), x + 5, cy + 3, col);
+			p.text(FcfPanel.fit(t.text(), leftW - 20), x + 5, cy + 12, C_GRAY);
 			if (t.action() != null) {
-				p.text("›", x + leftW - 8, cy + 6, MUTED);
+				p.text(">", x + leftW - 9, cy + 7, C_GRAY);
 				btn(x, cy, x + leftW, cy + 21, t.action());
 			}
 			cy += 24;
@@ -405,16 +433,14 @@ final class Desk {
 		sorted.sort((a, b) -> Double.compare(d(a, "end"), d(b, "end")));
 		int ey = ty + 12;
 		if (sorted.isEmpty()) p.text(FcfPanel.fit(n == null ? "Waiting for your auctions…" : "Nothing running.", rw), rx, ey, MUTED);
-		DateTimeFormatter hm = DateTimeFormatter.ofPattern("H:mm", Locale.ENGLISH);
 		for (JsonObject o : sorted) {
 			if (ey > y + h - 20) break;
-			Double e = HudFormatter.num(o, "end");
-			boolean soon = e - System.currentTimeMillis() < 3_600_000L;
-			String left = ends(o), when = Instant.ofEpochMilli(e.longValue()).atZone(ZoneId.systemDefault()).format(hm);
+			boolean soon = d(o, "end") - System.currentTimeMillis() < 3_600_000L;
 			String what = sale(o) ? "you sell" : winning(o) ? "you win" : "outbid";
-			p.text(left, rx, ey, soon ? RED : INK);
-			p.text(FcfPanel.fit(item(o), rw - 44), rx + 40, ey, INK);
-			p.text(FcfPanel.fit(when + " · " + what + " · " + fmt(d(o, "amount")), rw - 44), rx + 40, ey + 9, MUTED);
+			p.text(FcfPanel.fit(item(o), rw), rx, ey, INK);
+			String left = ends(o);
+			p.text(left, rx, ey + 9, soon ? RED : MUTED);
+			p.text(FcfPanel.fit(" · " + what + " · " + fmt(d(o, "amount")), rw - w(left)), rx + w(left), ey + 9, MUTED);
 			Runnable v = view(o);
 			if (v != null) btn(rx, ey - 1, rx + rw, ey + 18, v);
 			ey += 21;
@@ -435,14 +461,14 @@ final class Desk {
 			if (uuid != null) known.add(uuid);
 			Double pr = HudFormatter.num(o, "profit");
 			if (!sale(o) && winning(o) && pr != null && pr < 0)
-				m.add(new Todo(0, "Loss on " + item(o), "Your bid " + fmt(d(o, "amount")) + " is more than it resells for (" + signed(pr) + ").", view(o)));
+				m.add(new Todo(0, "Loss on " + item(o) + ": " + signed(pr), "Your bid is higher than it resells for.", view(o)));
 			if (!sale(o) && outbid(o))
 				m.add(new Todo(1, "Outbid on " + item(o), "Collect your " + fmt(d(o, "amount")) + " back, or bid again.", view(o)));
 			else if (ended(o))
 				m.add(new Todo(2, sale(o) ? "Sold: " + item(o) : "Won: " + item(o),
 						sale(o) ? "Collect " + fmt(d(o, "net")) + " coins." : "Claim your item.", view(o)));
 			if (overpriced(o))
-				m.add(new Todo(1, item(o) + " is priced above its value", "Listed " + fmt(d(o, "amount")) + ", worth about " + fmt(d(o, "value")) + ". It may not sell.", view(o)));
+				m.add(new Todo(1, "Priced too high: " + item(o), "Listed " + fmt(d(o, "amount")) + ", worth about " + fmt(d(o, "value")) + ".", view(o)));
 			Double e = HudFormatter.num(o, "end");
 			long now = System.currentTimeMillis();
 			if (!sale(o) && winning(o) && e != null && e > now && e - now < 600_000L)
@@ -489,14 +515,14 @@ final class Desk {
 			};
 			if (!keep) continue;
 			Double val = HudFormatter.num(o, "value");
-			String status = ended(o) ? (s ? "sold · collect" : "won · claim") : s ? "listed" : win ? "winning" : "outbid · collect";
+			String status = ended(o) ? (s ? "sold" : "won") : s ? "listed" : win ? "winning" : "outbid";
 			int sc = col ? GREEN : win ? YELLOW : 0;
 			rows.add(new Row(new String[]{item(o), String.valueOf((int) d(o, "count")), fmt(d(o, "amount")), val == null ? "-" : fmt(val), status, ends(o)},
 					new int[]{0, 0, 0, 0, sc, 0}, s ? "S" : "B", s ? 0xFFF26A1B : 0xFF3D8BD9, view(o)));
 		}
-		table(p, x, y + 14, w, h - 14, new Col[]{new Col("Item", 0.36, false), new Col("Qty", 0.07, true), new Col("Price", 0.13, true),
-				new Col("Worth", 0.13, true), new Col("Status", 0.19, false), new Col("Ends", 0.12, true)}, rows,
-				"S = selling · B = buying · on the AH: " + fmt(onAh(n)));
+		table(p, x, y + 14, w, h - 14, new Col[]{new Col("Item", 0.37, false), new Col("Qty", 0.07, true), new Col("Price", 0.13, true),
+				new Col("Worth", 0.13, true), new Col("Status", 0.15, false), new Col("Ends", 0.15, true)}, rows,
+				"S = selling · B = bidding · green = ready to collect · on the AH: " + fmt(onAh(n)));
 	}
 
 	// ================================================================== Buying
@@ -512,9 +538,9 @@ final class Desk {
 					pr == null ? (win ? "?" : "-") : signed(pr), win ? "winning" : "outbid", ends(o)},
 					new int[]{0, 0, 0, 0, pr == null ? MUTED : pr >= 0 ? GREEN : RED, win ? GREEN : AMBER, 0}, null, 0, view(o)));
 		}
-		table(p, x, y, w, h, new Col[]{new Col("Item", 0.30, false), new Col("Your bid", 0.12, true), new Col("Top bid", 0.12, true),
-				new Col("Worth", 0.12, true), new Col("Profit", 0.12, true), new Col("Status", 0.11, false), new Col("Ends", 0.11, true)}, rows,
-				"Winning bids: " + fmt(total) + " · Profit = what it resells for after tax, minus your bid");
+		table(p, x, y, w, h, new Col[]{new Col("Item", 0.27, false), new Col("Your bid", 0.12, true), new Col("Top bid", 0.12, true),
+				new Col("Worth", 0.11, true), new Col("Profit", 0.12, true), new Col("Status", 0.13, false), new Col("Ends", 0.13, true)}, rows,
+				"Winning bids: " + fmt(total) + " · Profit = resale after tax minus your bid");
 	}
 
 	// ================================================================== Selling
@@ -527,12 +553,12 @@ final class Desk {
 			total += d(o, "net");
 			boolean bin = o.has("bin") && o.get("bin").getAsBoolean();
 			rows.add(new Row(new String[]{item(o), fmt(d(o, "amount")), HudFormatter.num(o, "value") == null ? "-" : fmt(d(o, "value")),
-					fmt(d(o, "net")), ended(o) ? "sold · collect" : over ? "too expensive" : bin ? "BIN" : "auction", ends(o)},
+					fmt(d(o, "net")), ended(o) ? "sold" : over ? "too high" : bin ? "BIN" : "auction", ends(o)},
 					new int[]{0, 0, 0, 0, ended(o) ? GREEN : over ? RED : MUTED, 0}, null, 0, view(o)));
 		}
-		table(p, x, y, w, h, new Col[]{new Col("Item", 0.34, false), new Col("Price", 0.13, true), new Col("Worth", 0.13, true),
-				new Col("You get", 0.14, true), new Col("Status", 0.15, false), new Col("Ends", 0.11, true)}, rows,
-				"You get " + fmt(total) + " if everything sells · \"You get\" is after the AH tax");
+		table(p, x, y, w, h, new Col[]{new Col("Item", 0.31, false), new Col("Price", 0.12, true), new Col("Worth", 0.12, true),
+				new Col("You get", 0.13, true), new Col("Status", 0.17, false), new Col("Ends", 0.15, true)}, rows,
+				"If everything sells you get " + fmt(total) + " (after AH tax)");
 	}
 
 	// ================================================================== Finance
@@ -542,7 +568,7 @@ final class Desk {
 		boolean subtract = n.has("bids_subtracted") && n.get("bids_subtracted").getAsBoolean();
 		double w0 = wallet == null ? 0 : wallet, sales = d(n, "sales"), bids = d(n, "bids"), exp = d(n, "expected"), ref = subtract ? 0 : d(n, "refunds");
 		double total = w0 + sales - (subtract ? bids : 0) + exp + ref, cons = total - sales + d(n, "sales_conservative");
-		Object[][] steps = {{"Cash (purse + bank)", w0, 0}, {"+ Your listings sell", sales, 1}, {"− Your winning bids" + (subtract ? "" : " (already paid)"), -bids, subtract ? 2 : 3},
+		Object[][] steps = {{"Coins (purse + bank)", w0, 0}, {"+ Your listings sell", sales, 1}, {"− Bids" + (subtract ? "" : " (already paid)"), -bids, subtract ? 2 : 3},
 				{"+ Items you win, resold", exp, 1}, {"+ Outbid coins back", ref, 1}, {"= Total", total, 0}};
 		double max = Math.max(1, Math.max(total, w0 + sales + exp + ref));
 		int labW = Math.min(130, w / 3), barX = x + labW + 6, barW = w - labW - 60;
@@ -573,12 +599,12 @@ final class Desk {
 		for (int i = 0; i < periods.length; i++) {
 			ProfitLog.Summary s = ProfitLog.summary(ProfitLog.startOfDay((int) periods[i][1]));
 			int tx = x + i * colW;
-			p.fill(tx, ry, tx + colW - 4, ry + 26, CARD);
-			p.text((String) periods[i][0], tx + 5, ry + 4, MUTED);
-			p.text(signed(s.profit()) + "  (" + s.flips() + " flip" + (s.flips() == 1 ? "" : "s") + ")", tx + 5, ry + 15, s.profit() >= 0 ? GREEN : RED);
+			slot(p, tx, ry, tx + colW - 4, ry + 26);
+			p.text((String) periods[i][0], tx + 5, ry + 4, C_GRAY);
+			p.text(signed(s.profit()) + "  (" + s.flips() + " flip" + (s.flips() == 1 ? "" : "s") + ")", tx + 5, ry + 15, s.profit() >= 0 ? C_GREEN : C_RED);
 		}
 		ry += 32;
-		p.text(FcfPanel.fit("Profit counts sales you made after buying the same item, after tax. /nef profit shows details.", w), x, ry, MUTED);
+		p.text(FcfPanel.fit("Profit = what you sold for after tax, minus what you paid. More: /nef profit", w), x, ry, MUTED);
 	}
 
 	// ================================================================== Market
@@ -712,15 +738,11 @@ final class Desk {
 		ly += 13;
 		int bx = x;
 		String b1 = "Open " + name + " in Bazaar";
-		p.fill(bx, ly - 2, bx + w(b1) + 8, ly + 9, ORANGE);
-		p.text(b1, bx + 4, ly, 0xFFFFFFFF);
-		btn(bx, ly - 2, bx + w(b1) + 8, ly + 9, () -> { on = false; FlipPanel.pick(id, name); });
-		bx += w(b1) + 12;
+		button(p, bx, ly - 3, bx + w(b1) + 10, ly + 10, b1, true, () -> { on = false; FlipPanel.pick(id, name); });
+		bx += w(b1) + 13;
 		boolean watched = bazaarList().contains(id);
-		String b2 = watched ? "✔ Watching" : "+ Watch";
-		p.fill(bx, ly - 2, bx + w(b2) + 8, ly + 9, CHIP);
-		p.text(b2, bx + 4, ly, INK);
-		btn(bx, ly - 2, bx + w(b2) + 8, ly + 9, () -> {
+		String b2 = watched ? "Watching" : "+ Watch";
+		button(p, bx, ly - 3, bx + w(b2) + 10, ly + 10, b2, false, () -> {
 			if (!bazaarList().contains(id)) {
 				List<String> l = bazaarList();
 				l.add(id);
@@ -728,14 +750,12 @@ final class Desk {
 				cfg.save();
 			}
 		});
-		bx += w(b2) + 12;
+		bx += w(b2) + 13;
 		if (other != null) {
 			String on2 = HudFormatter.str(HudFormatter.obj(sj, "names"), other);
 			String b3 = "Open " + (on2 == null ? pretty(other) : on2);
-			p.fill(bx, ly - 2, bx + w(b3) + 8, ly + 9, CHIP);
-			p.text(b3, bx + 4, ly, INK);
 			final String oname = on2 == null ? pretty(other) : on2;
-			btn(bx, ly - 2, bx + w(b3) + 8, ly + 9, () -> { on = false; FlipPanel.pick(other, oname); });
+			button(p, bx, ly - 3, bx + w(b3) + 10, ly + 10, b3, false, () -> { on = false; FlipPanel.pick(other, oname); });
 		}
 		ly += 14;
 		sparkChart(p, x, ly, w, y + h - ly, sj, id, other);
@@ -754,7 +774,7 @@ final class Desk {
 		lo -= pad;
 		hi += pad;
 		int gx = x + 34, gy = y + 10, gw = w - 38, gh = h - 20;
-		p.fill(gx, gy + gh - (int) ((10000.0 - lo) / (hi - lo) * gh), gx + gw, gy + gh - (int) ((10000.0 - lo) / (hi - lo) * gh) + 1, 0xFF3A444E);
+		p.fill(gx, gy + gh - (int) ((10000.0 - lo) / (hi - lo) * gh), gx + gw, gy + gh - (int) ((10000.0 - lo) / (hi - lo) * gh) + 1, LINE);
 		for (int k = 0; k <= 2; k++) {
 			long v = lo + (hi - lo) * k / 2;
 			int yy = gy + gh - (int) ((double) (v - lo) / (hi - lo) * gh);

@@ -22,11 +22,11 @@ A Hypixel SkyBlock trading helper for Fabric. Not Enough Flips shows prices, ver
 - **Forecasts:** 1 h, 6 h and 24 h bazaar forecasts. The method is chosen per series (smoothing, Holt, regression, hour-of-day index), and a model is dropped when its tracking signal fails. Turn them on or off with `/nef forecast on|off`.
 - **Trade Desk** (`/nef desk`): a simple ERP for your trading, with six sections:
   - **Home:** key numbers, a to-do list and what ends next.
-  - **Stock:** everything you have on the AH.
-  - **Buying:** your bids.
-  - **Selling:** your listings.
-  - **Finance:** your coins once everything settles, plus your profit.
-  - **Market:** bazaar prices and tips.
+  - **My Auctions:** everything you have on the AH.
+  - **Bids:** auctions you bid on.
+  - **Listings:** items you are selling.
+  - **Coins:** your coins once everything settles, plus your profit.
+  - **Bazaar:** prices and tips.
 
 ## Commands
 
