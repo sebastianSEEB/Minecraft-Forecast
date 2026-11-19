@@ -25,8 +25,8 @@ A Hypixel SkyBlock trading helper for Fabric. Not Enough Flips shows prices, ver
   - **My Auctions:** everything you have on the AH.
   - **Bids:** auctions you bid on.
   - **Listings:** items you are selling.
-  - **Coins:** your coins once everything settles, plus your profit.
-  - **Bazaar:** prices and tips.
+  - **Coins:** what your coins add up to once everything settles, where they are right now, a 7-day history, what your open auctions are worth, and your profit.
+  - **Bazaar:** prices, tips, and coins traded per day on each market (market size).
 
 ## Commands
 

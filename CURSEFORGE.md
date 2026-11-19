@@ -42,8 +42,8 @@ Bazaar price forecasts for 1, 6 and 24 hours ahead. Each product gets the foreca
 
 - Home: your cash, coins on the AH, coins to collect and today's profit, a to-do list (items to collect, outbid bids, listings priced too high) and what ends next.
 - My Auctions, Bids and Listings: your auctions and bids, with what each item is worth.
-- Coins: what your coins add up to once everything settles, and your profit today, this week and this month.
-- Bazaar: prices with 7-day charts, and the bazaar signals.
+- Coins: what your coins add up to once everything settles, where they are right now, how they changed over the last week, what your open auctions are worth, and your profit today, this week and this month.
+- Bazaar: prices with 7-day charts, the bazaar signals, and how many coins are traded per day on the bazaar and the AH.
 
 Click a row to open that auction.
 

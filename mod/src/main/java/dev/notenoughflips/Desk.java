@@ -53,6 +53,8 @@ final class Desk {
 	private static String win = "home";
 	private static String stockFilter = "all";
 	private static String marketView = "prices";
+	private static String coinsView = "summary";
+	private static boolean biWeek = true;
 	private static int page;
 	private static String bzSel;
 	private static final List<Btn> buttons = new ArrayList<>();
@@ -106,7 +108,7 @@ final class Desk {
 		int colW = Math.min(118, Math.max(92, W / 6));
 		sidebar(p, 0, 0, colW, H, n, pos);
 		int deskX = colW + 8, deskW = W - deskX - 6;
-		window(p, deskX, 6, deskW, H - 12, n, pos);
+		window(p, deskX, 6, deskW, H - 12, f, n, pos);
 	}
 
 	/** Returns true when the Trade Desk is open (the click is used here and must not reach the inventory). */
@@ -250,7 +252,7 @@ final class Desk {
 			{"buying", "Bids", "auctions you bid on"},
 			{"selling", "Listings", "items you are selling"},
 			{"finance", "Coins", "your coins and your profit"},
-			{"market", "Bazaar", "prices and tips"}};
+			{"market", "Bazaar", "prices, tips and market size"}};
 
 	private static void sidebar(Highlight.Painter p, int x, int y, int w, int H, JsonObject n, List<JsonObject> pos) {
 		int x1 = x + 4, x2 = x + w - 2, y1 = y + 6, y2 = H - 6;
@@ -295,7 +297,7 @@ final class Desk {
 	}
 
 	// ================================================================== window frame
-	private static void window(Highlight.Painter p, int x, int y, int w, int h, JsonObject n, List<JsonObject> pos) {
+	private static void window(Highlight.Painter p, int x, int y, int w, int h, JsonObject f, JsonObject n, List<JsonObject> pos) {
 		String title = win, sub = "";
 		for (String[] t : SECTIONS) if (t[0].equals(win)) { title = t[1]; sub = t[2]; }
 		panel(p, x, y, x + w, y + h);
@@ -312,7 +314,7 @@ final class Desk {
 			case "stock" -> stock(p, bx, by, bw, bh, pos, n);
 			case "buying" -> buying(p, bx, by, bw, bh, pos);
 			case "selling" -> selling(p, bx, by, bw, bh, pos);
-			case "finance" -> finance(p, bx, by, bw, bh, n);
+			case "finance" -> coins(p, bx, by, bw, bh, f, n, pos);
 			case "market" -> market(p, bx, by, bw, bh);
 			default -> home(p, bx, by, bw, bh, n, pos);
 		}
@@ -504,8 +506,10 @@ final class Desk {
 			final String id = f[0];
 			cx = chip(p, cx, y, f[1], stockFilter.equals(id), () -> { stockFilter = id; page = 0; });
 		}
+		List<JsonObject> sorted = new ArrayList<>(pos);                // soonest to end first (ended ones on top)
+		sorted.sort((a, b) -> Double.compare(d(a, "end"), d(b, "end")));
 		List<Row> rows = new ArrayList<>();
-		for (JsonObject o : pos) {
+		for (JsonObject o : sorted) {
 			boolean s = sale(o), win = winning(o), col = toCollect(o);
 			boolean keep = switch (stockFilter) {
 				case "listed" -> s && !ended(o);
@@ -607,13 +611,254 @@ final class Desk {
 		p.text(FcfPanel.fit("Profit = what you sold for after tax, minus what you paid. More: /nef profit", w), x, ry, MUTED);
 	}
 
+	// ================================================================== Coins: tabs
+	private static void coins(Highlight.Painter p, int x, int y, int w, int h, JsonObject f, JsonObject n, List<JsonObject> pos) {
+		int cx = x;
+		for (String[] t : new String[][]{{"summary", "Summary"}, {"breakdown", "Where they are"}, {"history", "History"}, {"report", "Open auctions"}}) {
+			final String id = t[0];
+			cx = chip(p, cx, y, t[1], coinsView.equals(id), () -> coinsView = id);
+		}
+		int cy = y + 15, ch = h - 15;
+		switch (coinsView) {
+			case "breakdown" -> breakdown(p, x, cy, w, ch, n, pos);
+			case "history" -> { if (f != null) history(p, x, cy, w, ch, f, n); }
+			case "report" -> report(p, x, cy, w, ch, n, pos);
+			default -> finance(p, x, cy, w, ch, n);
+		}
+	}
+
+	private static void history(Highlight.Painter p, int x, int y, int w, int h, JsonObject f, JsonObject n) {
+		p.text("Your coins over time", x, y, INK);
+		int rx = x + w - w("Last week") - w("Last 24h") - 26;
+		rx = chip(p, rx, y, "Last week", biWeek, () -> biWeek = true);
+		chip(p, rx, y, "Last 24h", !biWeek, () -> biWeek = false);
+
+		long now = System.currentTimeMillis(), from = now - (biWeek ? 7 : 1) * 86_400_000L;
+		List<long[]> fcfPts = new ArrayList<>(), ahPts = new ArrayList<>();
+		JsonObject wn = HudFormatter.obj(FcfPanel.report(), "now");
+		Double bank = wn == null || HudFormatter.num(wn, "bank") == null ? null : d(wn, "bank") + d(wn, "personal_bank");
+		JsonElement se = f.has("series") ? f.get("series") : null;
+		if (se != null && se.isJsonArray()) {
+			for (JsonElement e : se.getAsJsonArray()) {
+				JsonObject o = e.getAsJsonObject();
+				Double tsD = HudFormatter.num(o, "ts");
+				if (tsD == null || tsD < from) continue;
+				long ts = tsD.longValue();
+				Double fc = HudFormatter.num(o, "fcf"), ah = HudFormatter.num(o, "on_ah");
+				if (ah == null && fc != null && HudFormatter.num(o, "wallet") != null) ah = fc - d(o, "wallet");
+				if (fc == null && ah != null) {
+					Double pu = PurseLog.at(ts);
+					if (pu != null) fc = ah + pu + (bank == null ? 0 : bank);
+				}
+				if (fc != null) fcfPts.add(new long[]{ts, Math.round(fc)});
+				if (ah != null) ahPts.add(new long[]{ts, Math.round(ah)});
+			}
+		}
+		Double wallet = walletNow(n);
+		if (wallet != null) fcfPts.add(new long[]{now, Math.round(wallet + d(n, "on_ah"))});
+		ahPts.add(new long[]{now, Math.round(d(n, "on_ah"))});
+		// legend
+		int ly = y + 14;
+		p.fill(x, ly + 3, x + 16, ly + 6, 0xFF9467BD);
+		p.text("All your coins", x + 20, ly, INK);
+		p.fill(x + 90, ly + 3, x + 106, ly + 6, 0xFFFF7F0E);
+		p.text("On the AH", x + 110, ly, INK);
+		long lo = Long.MAX_VALUE, hi = Long.MIN_VALUE;
+		for (List<long[]> l : List.of(fcfPts, ahPts)) for (long[] q : l) { lo = Math.min(lo, q[1]); hi = Math.max(hi, q[1]); }
+		if (lo == Long.MAX_VALUE) return;
+		long pad = Math.max(1, (hi - lo) / 10);
+		lo = Math.max(0, lo - pad);
+		hi += pad;
+		int gx = x + 34, gy = ly + 14, gw = w - 38, gh = h - (gy - y) - 24;
+		for (int k = 0; k <= 4; k++) {
+			long v = lo + (hi - lo) * k / 4;
+			int yy = gy + gh - (int) ((double) (v - lo) / (hi - lo) * gh);
+			p.fill(gx, yy, gx + gw, yy + 1, LINE);
+			String t = fmt((double) v);
+			p.text(t, gx - 3 - w(t), yy - 4, MUTED);
+		}
+		p.text(biWeek ? "7 days ago" : "24h ago", gx, gy + gh + 3, MUTED);
+		p.text("now", gx + gw - w("now"), gy + gh + 3, MUTED);
+		FcfPanel.line(p, ahPts, from, now, lo, hi, gx, gy, gw, gh, 0xFFFF7F0E);
+		FcfPanel.line(p, fcfPts, from, now, lo, hi, gx, gy, gw, gh, 0xFF9467BD);
+		p.text("Updated every time your auctions are checked", x + (w - w("Updated every time your auctions are checked")) / 2, y + h - 10, BLUE);
+	}
+
+	private static void breakdown(Highlight.Painter p, int x, int y, int w, int h, JsonObject n, List<JsonObject> pos) {
+		if (n == null) return;
+		p.text("Where your coins are right now", x, y, INK);
+		Double purse = FcfPanel.purse();
+		JsonObject wn = HudFormatter.obj(FcfPanel.report(), "now");
+		double bank = wn == null ? d(n, "bank") : d(wn, "bank") + d(wn, "personal_bank");
+		double pu = purse != null ? purse : HudFormatter.num(n, "purse") != null ? d(n, "purse") : 0;
+		boolean subtract = n.has("bids_subtracted") && n.get("bids_subtracted").getAsBoolean();
+		String[] labels = {"Purse", "Bank", "Listed items", "In winning bids", "Outbid (to collect)"};
+		double[] v = {pu, bank, d(n, "sales"), d(n, "bids"), subtract ? 0 : d(n, "refunds")};
+		double total = 0;
+		for (double a : v) total += Math.max(0, a);
+		int r = Math.min(46, (h - 30) / 2);
+		int cx = x + r + 4, cy = y + 16 + r;
+		if (total > 0) FcfPanel.pie(p, cx, cy, r, v, total);
+		int lx = cx + r + 14, ly = y + 18;
+		for (int i = 0; i < labels.length; i++) {
+			p.fill(lx, ly + 1, lx + 16, ly + 7, FcfPanel.SLICE[i]);
+			p.text(labels[i], lx + 20, ly, INK);
+			String val = fmt(v[i]) + String.format(Locale.ROOT, "  %.0f%%", total > 0 ? 100 * Math.max(0, v[i]) / total : 0);
+			p.text(val, x + w - w(val), ly, INK);
+			ly += 13;
+		}
+		p.fill(lx, ly, x + w, ly + 1, LINE);
+		p.text("Total", lx + 20, ly + 3, INK);
+		p.text(fmt(total), x + w - w(fmt(total)), ly + 3, INK);
+		ly += 18;
+		List<JsonObject> top = new ArrayList<>(pos);
+		top.sort((a, b) -> Double.compare(FcfPanel.tied(b), FcfPanel.tied(a)));
+		p.text("Biggest positions", lx, ly, MUTED);
+		ly += 11;
+		for (int i = 0; i < Math.min(4, top.size()) && ly < y + h - 10; i++) {
+			JsonObject o = top.get(i);
+			String val = fmt(FcfPanel.tied(o));
+			p.text(FcfPanel.fit(item(o), x + w - lx - w(val) - 6), lx, ly, INK);
+			p.text(val, x + w - w(val), ly, INK);
+			Runnable r2 = view(o);
+			if (r2 != null) btn(lx, ly - 1, x + w, ly + 9, r2);
+			ly += 11;
+		}
+	}
+
+	private static final String[] CAT_ORDER = {"weapon", "armor", "accessories", "consumables", "blocks", "pets", "misc"};
+
+	/**
+	 * Coins traded per day on each market: Bazaar (from its weekly volumes), Auction House split into BIN and normal
+	 * auctions (measured from Hypixel's ended-auctions feed while you play, see AhMarket), the AH by category, the
+	 * busiest bazaar products, and your own share (your logged trades of the last 24 h).
+	 */
+	private static void marketSize(Highlight.Painter p, int x, int y, int w, int h) {
+		p.text("Coins traded per day on each market", x, y, INK);
+		Map<String, Double> bzMap = AhMarket.bazaarPerDay(data.bazaarAll());
+		double bz = 0;
+		for (double v : bzMap.values()) bz += v;
+		AhMarket.Day ah = AhMarket.day();
+		double[] v = {bz, ah.bin(), ah.auction()};
+		String[] labels = {"Bazaar", "AH – BIN", "AH – auctions"};
+		double total = bz + ah.total();
+		int r = Math.min(40, (h - 40) / 3);
+		int cx = x + r + 4, cy = y + 16 + r;
+		if (total > 0) FcfPanel.pie(p, cx, cy, r, v, total);
+		int lx = cx + r + 14, ly = y + 16;
+		for (int i = 0; i < 3; i++) {
+			p.fill(lx, ly + 1, lx + 16, ly + 7, FcfPanel.SLICE[i]);
+			p.text(labels[i], lx + 20, ly, INK);
+			String val = fmt(v[i]) + "/day" + String.format(Locale.ROOT, "  %.0f%%", total > 0 ? 100 * v[i] / total : 0);
+			p.text(val, x + w - w(val), ly, INK);
+			ly += 12;
+		}
+		p.fill(lx, ly, x + w, ly + 1, LINE);
+		p.text("Total", lx + 20, ly + 3, INK);
+		p.text(fmt(total) + "/day", x + w - w(fmt(total) + "/day"), ly + 3, INK);
+		ly += 15;
+		String note = ah.hoursMeasured() <= 0 ? "AH: measuring… (Hypixel's sold-auctions feed, every 30 s while you play)"
+				: ah.scaled() ? String.format(Locale.ROOT, "AH measured over %.1f h, scaled to a day · %d sales/day", ah.hoursMeasured(), ah.sales())
+				: "AH: last 24 h · " + ah.sales() + " sales";
+		p.text(FcfPanel.fit(note, x + w - lx), lx, ly, MUTED);
+		ly += 11;
+		double[] mine = ProfitLog.volume(System.currentTimeMillis() - 86_400_000L);
+		String you = String.format(Locale.ROOT, "You (24 h): bazaar %s (%s of it) · AH %s (%s)", fmt(mine[0]),
+				share(mine[0], bz), fmt(mine[1]), share(mine[1], ah.total()));
+		p.text(FcfPanel.fit(you, x + w - lx), lx, ly, INK);
+		// lower half: AH by category | busiest bazaar products
+		int by = Math.max(cy + r + 10, ly + 14), half = (w - 10) / 2;
+		p.text("AH by category", x, by, INK);
+		p.text("Busiest bazaar products", x + half + 10, by, INK);
+		int ry = by + 12;
+		double catTotal = 0;
+		for (double c : ah.byCategory().values()) catTotal += c;
+		for (String c : CAT_ORDER) {
+			Double cv = ah.byCategory().get(c);
+			if (cv == null || cv <= 0 || ry > y + h - 10) continue;
+			int bw = (int) ((half - 90) * cv / Math.max(1, catTotal));
+			p.fill(x + 62, ry + 1, x + 62 + Math.max(1, bw), ry + 7, 0xFFB07A00);
+			p.text(Character.toUpperCase(c.charAt(0)) + c.substring(1), x, ry, INK);
+			String val = fmt(cv);
+			p.text(val, x + half - w(val), ry, MUTED);
+			ry += 10;
+		}
+		int ry2 = by + 12;
+		for (Map.Entry<String, Double> e : AhMarket.top(bzMap, 8)) {
+			if (ry2 > y + h - 10) break;
+			String val = fmt(e.getValue());
+			p.text(FcfPanel.fit(Bazaar.name(e.getKey(), data), half - w(val) - 6), x + half + 10, ry2, INK);
+			p.text(val, x + w - w(val), ry2, MUTED);
+			ry2 += 10;
+		}
+	}
+
+	private static String share(double mine, double market) {
+		if (market <= 0 || mine <= 0) return "0%";
+		double pct = 100 * mine / market;
+		return pct >= 0.1 ? String.format(Locale.ROOT, "%.1f%%", pct) : String.format(Locale.ROOT, "%.4f%%", pct);
+	}
+
+	/** Income-statement style: what your open positions are worth against what you paid / asked. */
+	private static void report(Highlight.Painter p, int x, int y, int w, int h, JsonObject n, List<JsonObject> pos) {
+		double bidCost = 0, winValue = 0, listAsk = 0, listValue = 0, listNet = 0, refunds = 0;
+		int unvalued = 0;
+		for (JsonObject o : pos) {
+			if (sale(o)) {
+				listAsk += d(o, "amount");
+				listNet += d(o, "net");
+				listValue += HudFormatter.num(o, "value") == null ? d(o, "amount") : Math.min(d(o, "amount"), d(o, "value"));
+			} else if (winning(o)) {
+				bidCost += d(o, "amount");
+				if (HudFormatter.num(o, "expected_net") == null) unvalued++;
+				winValue += d(o, "expected_net");
+			} else refunds += d(o, "amount");
+		}
+		Object[][] lines = {
+				{"What your open auctions are worth", null, true},
+				{"Items you are winning, resold after tax", winValue, false},
+				{"− Cost of winning bids", -bidCost, false},
+				{"= Profit on your bids", winValue - bidCost, true},
+				{"", null, false},
+				{"Your listings at their price", listAsk, false},
+				{"− AH tax", listNet - listAsk, false},
+				{"− Priced above what they are worth", listValue - listAsk, false},
+				{"= What your listings will really bring", listValue - (listAsk - listNet), true},
+				{"", null, false},
+				{"Outbid coins to collect", refunds, false},
+		};
+		int ry = y;
+		for (Object[] l : lines) {
+			String lab = (String) l[0];
+			Double v = (Double) l[1];
+			boolean bold = (boolean) l[2];
+			p.text(lab, x, ry, bold ? INK : MUTED);
+			if (v != null) {
+				String t = signedIf(v, lab.startsWith("−") || lab.startsWith("="));
+				p.text(t, x + w - w(t), ry, bold ? (v >= 0 ? GREEN : RED) : INK);
+			}
+			if (bold && v != null) p.fill(x, ry - 2, x + w, ry - 1, LINE);
+			ry += 12;
+		}
+		if (unvalued > 0) p.text(unvalued + " winning item(s) have no value estimate yet", x, ry + 4, MUTED);
+	}
+
+	private static String signedIf(double v, boolean sign) {
+		return sign ? signed(v) : fmt(v);
+	}
+
+
 	// ================================================================== Market
 	private static void market(Highlight.Painter p, int x, int y, int w, int h) {
 		int strong = strongSignals();
 		int cx = chip(p, x, y, "Prices", marketView.equals("prices"), () -> { marketView = "prices"; page = 0; });
-		chip(p, cx, y, strong > 0 ? "Tips (" + strong + ")" : "Tips", marketView.equals("tips"), () -> { marketView = "tips"; page = 0; });
-		if (marketView.equals("tips")) signals(p, x, y + 15, w, h - 15);
-		else bazaar(p, x, y + 15, w, h - 15);
+		cx = chip(p, cx, y, strong > 0 ? "Tips (" + strong + ")" : "Tips", marketView.equals("tips"), () -> { marketView = "tips"; page = 0; });
+		chip(p, cx, y, "Market size", marketView.equals("size"), () -> { marketView = "size"; page = 0; });
+		switch (marketView) {
+			case "tips" -> signals(p, x, y + 15, w, h - 15);
+			case "size" -> marketSize(p, x, y + 15, w, h - 15);
+			default -> bazaar(p, x, y + 15, w, h - 15);
+		}
 	}
 
 	// ---------------------------------------------------------------- bazaar signals (misprices, correlations)
@@ -857,9 +1102,9 @@ final class Desk {
 					avg == null ? "-" : fmt(avg), hi == null ? "-" : fmt(hi), lo == null ? "-" : fmt(lo), spread},
 					new int[]{selRow ? ORANGE : 0, chg, 0, 0, GREEN, RED, MUTED}, null, 0, () -> bzSel = k));
 		}
-		table(p, x, y, w, tableH, new Col[]{new Col("Product", 0.30, false), new Col("Sell now", 0.12, true), new Col("Buy now", 0.12, true),
-				new Col("24h avg", 0.12, true), new Col("24h high", 0.12, true), new Col("24h low", 0.12, true), new Col("Spread", 0.10, true)},
-				rows, null);
+		table(p, x, y, w, tableH, new Col[]{new Col("Product", 0.30, false), new Col("Sell", 0.12, true), new Col("Buy", 0.12, true),
+				new Col("Avg", 0.12, true), new Col("High", 0.12, true), new Col("Low", 0.12, true), new Col("Gap", 0.10, true)},
+				rows, "Sell / Buy = instant prices now · Avg, High, Low = last 24 h · Gap = Buy minus Sell");
 		bazaarChart(p, x, y + tableH + 4, w, h - tableH - 4, bzSel);
 	}
 
