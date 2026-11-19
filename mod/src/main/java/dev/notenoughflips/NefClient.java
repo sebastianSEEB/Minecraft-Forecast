@@ -78,7 +78,6 @@ public final class NefClient implements ClientModInitializer {
 		FlipFeed.init(config);
 		Sniper.init(config);
 		Bidders.init(config);
-		AhMarket.init();
 		FlipPanel.init(config, data);
 		SignFill.init(config, data);
 		PriceChart.init(config);
@@ -92,7 +91,6 @@ public final class NefClient implements ClientModInitializer {
 		net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			if (client.player != null && ticks[0] % 200 == 0) {          // every 10 s
 				try {
-					AhMarket.tick();                                   // AH sales per day (market shares)
 					AhScanner.tick(config);                                // scans every scanMinutes
 					BzOrders.check();                                      // bazaar orders outbid / undercut (every 30 s)
 					if (config.setupDone) FlipFeed.tick(FlipPanel.budget());   // announce the best new AH flips
@@ -393,7 +391,7 @@ public final class NefClient implements ClientModInitializer {
 								return 1;
 							}
 							ctx.getSource().sendFeedback(Component.literal("[NEF] Bazaar signals (" + sj.getAsJsonArray("signals").size()
-									+ "), best first. Full list + charts: Trade Desk → Signals."));
+									+ "), best first. Full list + charts: Trade Desk → Market → Tips."));
 							int n = 0;
 							for (var e : sj.getAsJsonArray("signals")) {
 								if (n++ >= 6) break;

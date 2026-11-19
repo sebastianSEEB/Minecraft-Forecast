@@ -183,7 +183,7 @@ final class HudFormatter {
 		DataClient dc = NefClient.data();
 		if (dc != null && Bazaar.eventMembers(dc.bzSignals()).contains(str(d, "k"))) {
 			out.add(line(" ⚠ part of a market event right now (many related products moved together): don't flip it until it settles."
-					+ " Trade Desk → Signals shows the event.", YELLOW));
+					+ " Trade Desk → Market → Tips shows the event.", YELLOW));
 		}
 		Market.BzFlip f = Bazaar.flip(cfg, str(d, "k"), live, cfg.budget(FcfPanel.purse()));
 		if (f == null) return;

@@ -74,7 +74,7 @@ final class Bazaar {
 		return ranked;
 	}
 
-	/** Products in a current market event (Trade Desk → Signals, "!"): kept out of the flip list until it settles. */
+	/** Products in a current market event (Trade Desk → Market → Tips, "!"): kept out of the flip list until it settles. */
 	static java.util.Set<String> eventMembers(com.google.gson.JsonObject sj) {
 		java.util.Set<String> out = new java.util.HashSet<>();
 		if (sj == null || !sj.has("signals")) return out;

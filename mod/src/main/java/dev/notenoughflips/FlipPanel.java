@@ -387,7 +387,7 @@ final class FlipPanel {
 		}
 	}
 
-	/** Start the Bazaar click flow (open / copy name → amount → price) for any product, e.g. from Trade Desk → Signals. */
+	/** Start the Bazaar click flow (open / copy name → amount → price) for any product, e.g. from Trade Desk → Market → Tips. */
 	static void pick(String id, String name) {
 		DataClient.Live live = data.live(id);
 		Market.BzFlip f = live == null ? null : Bazaar.flip(cfg, id, live, budget());

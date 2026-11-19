@@ -16,7 +16,7 @@ Not Enough Flips is a Hypixel SkyBlock trading helper. It shows prices, verdicts
 - 🧾 **Bidder check:** see how many coins the people you're bidding against hold, so you don't overspend. This needs your own free Hypixel API key: `/nef apikey <key>`.
 - 🔎 **Bazaar signals:** misprices measured against correlated products, pair spreads and recipe ratios, with plain-language suggestions.
 - 🔮 **Forecasts:** 1 h / 6 h / 24 h bazaar price forecasts. You can turn them off.
-- 🖥️ **Trade Desk** (`/nef desk`): your positions, bids, cash flow, analytics and market shares in one window.
+- 🖥️ **Trade Desk** (`/nef desk`): a simple ERP for your trading. Home (to-do list), Stock, Buying, Selling, Finance and Market.
 
 ## Fair play
 

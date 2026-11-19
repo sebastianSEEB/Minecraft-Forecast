@@ -20,7 +20,13 @@ A Hypixel SkyBlock trading helper for Fabric. Not Enough Flips shows prices, ver
 - **Bid helper:** in an auction view, a panel shows how many coins the other bidders hold (purse + bank), so you don't overbid against someone who can't follow. This needs your own Hypixel API key: `/nef apikey <key>`. The key is stored only in your local config.
 - **Bazaar signals:** misprices measured against each product's correlated peers, pair spreads, compression-recipe ratios and market-wide events, with plain-language suggestions.
 - **Forecasts:** 1 h, 6 h and 24 h bazaar forecasts. The method is chosen per series (smoothing, Holt, regression, hour-of-day index), and a model is dropped when its tracking signal fails. Turn them on or off with `/nef forecast on|off`.
-- **Trade Desk** (`/nef desk`): positions, bids, listings, cash flow, analytics, market shares (coins traded per day on each market) and a coach.
+- **Trade Desk** (`/nef desk`): a simple ERP for your trading, with six sections:
+  - **Home:** key numbers, a to-do list and what ends next.
+  - **Stock:** everything you have on the AH.
+  - **Buying:** your bids.
+  - **Selling:** your listings.
+  - **Finance:** your coins once everything settles, plus your profit.
+  - **Market:** bazaar prices and tips.
 
 ## Commands
 

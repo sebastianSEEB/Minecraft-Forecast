@@ -96,7 +96,6 @@ final class FlipFeed {
 		} catch (Exception e) {
 			return;
 		}
-		AhMarket.category(key[0], a);                                // item → category, for the market-share view
 		String k = key[0];
 		if (k == null || k.startsWith("PET") || k.equals("ENCHANTED_BOOK")) return;
 		double unit = a.get("starting_bid").getAsDouble() / Math.max(1, count[0]);
