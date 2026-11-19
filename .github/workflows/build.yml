@@ -60,7 +60,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          gh release delete latest --repo "$REPO" --yes --cleanup-tag || true
-          gh release create latest jars/*.jar --repo "$REPO" --target "${{ github.sha }}" \
+          gh release delete nef-build --repo "$REPO" --yes --cleanup-tag || true
+          gh release create nef-build --prerelease jars/*.jar --repo "$REPO" --target "${{ github.sha }}" \
             --title "Not Enough Flips (latest build)" \
             --notes "Pick the jar for your Minecraft version and put it in your mods folder with Fabric API. mc26.1 = 26.1 / 26.1.1 / 26.1.2, mc26.2 = 26.2.x, mc26.3 = 26.3.x, mc1.21.11 = 1.21.11."
