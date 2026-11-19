@@ -1,0 +1,24 @@
+{
+	"schemaVersion": 1,
+	"id": "notenoughflips",
+	"version": "${version}",
+	"name": "Not Enough Flips",
+	"description": "Hypixel SkyBlock trading helper: item values and verdicts in tooltips, AH and bazaar flip finder, snipe alerts, bid helper, bazaar signals and a trade desk. Shows information only - you make every trade yourself.",
+	"authors": ["sebastianSEEB"],
+	"contact": {
+		"homepage": "https://github.com/sebastianSEEB/not-enough-flips",
+		"sources": "https://github.com/sebastianSEEB/not-enough-flips",
+		"issues": "https://github.com/sebastianSEEB/not-enough-flips/issues"
+	},
+	"license": "MIT (with credit)",
+	"icon": "assets/notenoughflips/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.notenoughflips.NefClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.10",
+		"minecraft": "${mc_range}",
+		"fabric-api": "*"
+	}
+}

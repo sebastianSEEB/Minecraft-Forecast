@@ -1,0 +1,35 @@
+name: Data · bazaar signals
+
+# Every 2 h: misprices, correlations and suggestions (tools/bz_signals.py → market/bzsignals.py) from the
+# Hypixel bazaar, SkyCofl 7-day history and NEU compression recipes.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 */2 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  signals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tests/test_bzsignals.py
+      - run: git clone -q --depth 1 https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO.git neu
+      - run: set -o pipefail; python tools/bz_signals.py out neu 260 | tee -a $GITHUB_STEP_SUMMARY
+      - run: |
+          tools/pages.sh clone site
+          mkdir -p site/data && cp out/bz_signals.json site/data/
+          tools/pages.sh push site

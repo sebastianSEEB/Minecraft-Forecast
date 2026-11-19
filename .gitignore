@@ -1,0 +1,13 @@
+build/
+.gradle/
+out/
+run/
+__pycache__/
+*.pyc
+neu/
+site/
+raw/
+*.db
+hypixel_api_key.txt
+.idea/
+*.iml

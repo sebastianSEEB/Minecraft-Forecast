@@ -1,0 +1,582 @@
+package dev.notenoughflips;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.world.inventory.ChestMenu;
+
+/**
+ * "FLIP" tab on the right of your inventory and every chest menu (Auction House, Bazaar, …). One click shows the
+ * flips that fit your purse right now:
+ *
+ *   AH      on this AH page (numbered, same as the numbers on the slots) + the best BIN flips from the mod's AH scan
+ *   Bazaar  your orders (outbid / undercut?) + best buy-order → sell-offer flips, coins per hour
+ *   Craft   best craft flips (published every 3 h), with the shopping list
+ *   Profit  today / 7 days realized profit from your logged buys and sells
+ *
+ * First time: a 3-tap setup (budget per flip, risk, max time to sell). Footer: Simple / Pro tooltips, setup, refresh.
+ * Clicking only opens an auction (/viewauction) or copies a price to your clipboard: you buy and list yourself.
+ */
+final class FlipPanel {
+	private static final int BTN_W = 30, BTN_H = 14, W = 160, R2 = 20;
+	private static final int BG = 0xE8101418, EDGE = 0xFF1BAF7A, TEXT = 0xFFFFFFFF, MUTED = 0xFF8A8A8A, DIM = 0xFF5E5E5E,
+			GOOD = 0xFF55FF55, WARN = 0xFFFFFF55, BAD = 0xFFFF5555, GOLD = 0xFFFFAA00, CHIP = 0xE0202830, CHIP_ON = 0xFF1BAF7A;
+	private static final String[] TABS = {"AH", "Bazaar", "Craft", "Snipe", "Profit"};
+
+	private record Hit(int x1, int y1, int x2, int y2, Runnable action) {}
+
+	private static NefConfig cfg;
+	private static DataClient data;
+	private static boolean open;
+	private static int tab;
+	private static final List<Hit> hits = new ArrayList<>();
+	private static FlipFeed.View view;
+	private static long viewAt;
+
+	private FlipPanel() {}
+
+	static void init(NefConfig config, DataClient client) {
+		cfg = config;
+		data = client;
+	}
+
+	static boolean isOpen() {
+		return open;
+	}
+
+	private static boolean active(Screen s) {
+		return cfg != null && cfg.flipButton && (s instanceof InventoryScreen
+				|| s instanceof AbstractContainerScreen<?> acs && acs.getMenu() instanceof ChestMenu);
+	}
+
+	static double budget() {
+		return cfg.budget(FcfPanel.purse());
+	}
+
+	// ------------------------------------------------------------------ drawing helpers
+	private static int width(String t) {
+		return Minecraft.getInstance().font.width(t);
+	}
+
+	private static void chip(Highlight.Painter p, int x, int y, String t, boolean on, Runnable action) {
+		int w = width(t) + 8;
+		p.fill(x, y, x + w, y + 12, on ? CHIP_ON : CHIP);
+		p.text(t, x + 4, y + 2, on ? TEXT : 0xFFCCCCCC);
+		hits.add(new Hit(x, y, x + w, y + 12, action));
+	}
+
+	private static int chipW(String t) {
+		return width(t) + 8;
+	}
+
+	/** Two-line row: name + right-aligned value, then a gray detail line. */
+	private static void row(Highlight.Painter p, int x, int y, int w, String name, String right, int rightColor, String detail,
+			Runnable action) {
+		int rw = width(right);
+		p.text(FcfPanel.fit(name, w - rw - 10), x + 4, y, TEXT);
+		p.text(right, x + w - rw - 4, y, rightColor);
+		p.text(FcfPanel.fit(detail, w - 8), x + 4, y + 9, MUTED);
+		if (action != null) hits.add(new Hit(x, y - 1, x + w, y + R2 - 1, action));
+	}
+
+	private static void section(Highlight.Painter p, int x, int y, int w, String t, String right) {
+		p.text(t, x + 4, y, GOLD);
+		if (right != null) p.text(right, x + w - width(right) - 4, y, DIM);
+	}
+
+	// ------------------------------------------------------------------ paint
+	static void paint(Screen s, Highlight.Painter p) {
+		if (!active(s)) return;
+		hits.clear();
+		int[] box = GuiPos.box(s);
+		int bx = Math.min(box[0] + box[2] + 3, s.width - BTN_W - 2), by = box[1];
+		p.fill(bx, by, bx + BTN_W, by + BTN_H, open ? EDGE : 0xF0202830);
+		p.fill(bx, by, bx + 2, by + BTN_H, GOLD);
+		p.text("FLIP", bx + 5, by + 3, open ? TEXT : GOLD);
+		if (!open) return;
+
+		int w = Math.max(110, Math.min(W, s.width - bx - 2));
+		int x = Math.min(bx, s.width - w - 2), y0 = by + BTN_H + 2, maxY = s.height - 4;
+		List<Runnable> deferred = new ArrayList<>();
+		Highlight.Painter q = new Highlight.Painter() {     // draw after the background (whose height we only know at the end)
+			@Override
+			public void fill(int x1, int y1, int x2, int y2, int argb) {
+				deferred.add(() -> p.fill(x1, y1, x2, y2, argb));
+			}
+
+			@Override
+			public void text(String t, int tx, int ty, int argb) {
+				deferred.add(() -> p.text(t, tx, ty, argb));
+			}
+		};
+		int y = y0 + 4;
+		Double purse = FcfPanel.purse();
+		section(q, x, y, w, "Flips", (purse != null ? "purse " + HudFormatter.fmt(purse) + " · " : "") + "≤" + HudFormatter.fmt(budget()) + "/flip");
+		y += 12;
+		if (!cfg.setupDone) {
+			y = wizard(q, x, y, w);
+		} else {
+			int tx = x + 3;
+			for (int i = 0; i < TABS.length; i++) {
+				int t = i;
+				chip(q, tx, y, TABS[i], tab == i, () -> tab = t);
+				tx += chipW(TABS[i]) + 2;
+			}
+			y += 16;
+			int bottom = maxY - 18;
+			y = switch (tab) {
+				case 0 -> ah(q, s, x, y, w, bottom);
+				case 1 -> bazaar(q, x, y, w, bottom);
+				case 2 -> craft(q, x, y, w, bottom);
+				case 3 -> snipe(q, x, y, w, bottom);
+				default -> profit(q, x, y, w, bottom);
+			};
+			y = footer(q, x, y + 2, w);
+		}
+		int h = Math.min(y + 3, maxY) - y0;
+		p.fill(x, y0, x + w, y0 + h, BG);
+		p.fill(x, y0, x + w, y0 + 1, EDGE);
+		p.fill(x, y0 + h - 1, x + w, y0 + h, EDGE);
+		for (Runnable r : deferred) r.run();
+		hits.add(new Hit(x, y0, x + w, y0 + h, () -> {}));          // clicks inside the panel never reach the menu
+	}
+
+	private static int wizard(Highlight.Painter p, int x, int y, int w) {
+		p.text("Quick setup (3 taps)", x + 4, y, TEXT);
+		y += 12;
+		p.text("Use per flip, at most:", x + 4, y, MUTED);
+		y += 10;
+		int cx = x + 4;
+		for (int pct : new int[]{10, 25, 50}) {
+			String t = pct + "% of purse";
+			if (cx + chipW(t) > x + w - 2) { cx = x + 4; y += 14; }
+			chip(p, cx, y, t, Math.round(cfg.budgetPercent) == pct, () -> { cfg.budgetPercent = pct; cfg.save(); });
+			cx += chipW(t) + 2;
+		}
+		y += 16;
+		p.text("Risk:", x + 4, y, MUTED);
+		y += 10;
+		cx = x + 4;
+		for (String r : new String[]{"safe", "normal", "bold"}) {
+			String t = Character.toUpperCase(r.charAt(0)) + r.substring(1);
+			chip(p, cx, y, t, r.equals(cfg.risk), () -> { cfg.applyRisk(r); cfg.save(); });
+			cx += chipW(t) + 2;
+		}
+		y += 14;
+		p.text(FcfPanel.fit(String.format(Locale.ROOT, "≥%.0f%% profit · sells ≥%.0f/day", cfg.minFlipProfitPercent, cfg.minSalesPerDay),
+				w - 8), x + 4, y, DIM);
+		y += 12;
+		p.text("Longest wait to resell:", x + 4, y, MUTED);
+		y += 10;
+		cx = x + 4;
+		for (int hrs : new int[]{2, 8, 24}) {
+			String t = hrs + "h";
+			chip(p, cx, y, t, Math.round(cfg.maxHoldHours) == hrs, () -> { cfg.maxHoldHours = hrs; cfg.save(); });
+			cx += chipW(t) + 2;
+		}
+		y += 18;
+		chip(p, x + 4, y, "Done ✔", true, () -> {
+			cfg.setupDone = true;
+			cfg.save();
+			AhScanner.poke(cfg, false);
+		});
+		return y + 14;
+	}
+
+	private static int footer(Highlight.Painter p, int x, int y, int w) {
+		p.fill(x + 3, y, x + w - 3, y + 1, 0x40FFFFFF);
+		y += 3;
+		int cx = x + 3;
+		chip(p, cx, y, "Simple", cfg.simpleMode, () -> { cfg.simpleMode = true; cfg.save(); });
+		cx += chipW("Simple") + 1;
+		chip(p, cx, y, "Pro", !cfg.simpleMode, () -> { cfg.simpleMode = false; cfg.save(); });
+		cx += chipW("Pro") + 4;
+		chip(p, cx, y, "⚙", false, () -> { cfg.setupDone = false; cfg.save(); });
+		cx += chipW("⚙") + 2;
+		chip(p, cx, y, "⟳", false, () -> { viewAt = 0; AhScanner.poke(cfg, true); });
+		cx += chipW("⟳") + 2;
+		chip(p, cx, y, "FC", cfg.forecastFlips, () -> {                // price forecasts in the flip lists on/off
+			cfg.forecastFlips = !cfg.forecastFlips;
+			cfg.save();
+			viewAt = 0;
+			Chat.say(HudFormatter.line("[NEF] ", HudFormatter.GOLD, "Forecasts in flips " + (cfg.forecastFlips ? "ON" : "OFF"),
+					HudFormatter.WHITE, cfg.forecastFlips ? " (flips count the expected price at the time you sell)" : " (live prices only)",
+					HudFormatter.GRAY));
+		});
+		return y + 13;
+	}
+
+	// ------------------------------------------------------------------ tabs
+	private static int ah(Highlight.Painter p, Screen s, int x, int y, int w, int bottom) {
+		List<Highlight.PageFlip> page = Highlight.page();
+		if (!page.isEmpty()) {
+			section(p, x, y, w, "On this page", page.size() + " found");
+			y += 11;
+			for (int i = 0; i < Math.min(3, page.size()) && y + R2 <= bottom; i++) {
+				Highlight.PageFlip f = page.get(i);
+				String detail = (f.bid() ? "bid " : "buy ") + HudFormatter.fmt(f.price())
+						+ (Double.isNaN(f.eta()) ? "" : " · resells " + Market.eta(f.eta()));
+				row(p, x, y, w, f.rank() + " " + f.name(), "+" + HudFormatter.fmt(f.profit()), GOOD, detail, null);
+				y += R2;
+			}
+			y += 2;
+		}
+		long now = System.currentTimeMillis();
+		if (view == null || now - viewAt > 2000) {
+			view = FlipFeed.view(budget());
+			viewAt = now;
+		}
+		long at = FlipFeed.scanAt();
+		String when = AhScanner.running() ? AhScanner.status().replace("scanning the AH… ", "scan ")
+				: at > 0 ? "scan " + Math.max(0, (now - at) / 60000) + "m ago" : "";
+		section(p, x, y, w, "Market flips", when);
+		y += 11;
+		if (!cfg.flipFeed) {
+			p.text(FcfPanel.fit("Feed is off: /nef feed on", w - 8), x + 4, y, MUTED);
+			return y + 10;
+		}
+		if (at == 0) {
+			p.text(FcfPanel.fit(AhScanner.running() ? "First AH scan running…" : "Starting the first AH scan…", w - 8), x + 4, y, MUTED);
+			AhScanner.poke(cfg, false);
+			return y + 10;
+		}
+		List<FlipFeed.Flip> fl = view.flips();
+		if (fl.isEmpty()) {
+			p.text(FcfPanel.fit("Nothing fits your budget + risk now", w - 8), x + 4, y, MUTED);
+			y += 10;
+			if (view.checking() > 0) {
+				p.text(FcfPanel.fit("checking prices of " + view.checking() + " more…", w - 8), x + 4, y, DIM);
+				y += 10;
+			}
+			return y;
+		}
+		for (int i = 0; i < fl.size() && y + R2 <= bottom; i++) {
+			FlipFeed.Flip f = fl.get(i);
+			String detail = HudFormatter.fmt(f.c().price()) + " → " + HudFormatter.fmt(f.resale()) + " · "
+					+ Market.eta(f.liq().etaHours()) + " · " + f.liq().confidence() + Forecasts.tag(f.forecast());
+			String uuid = f.c().uuid();
+			row(p, x, y, w, (i + 1) + ". " + f.c().name(), "+" + HudFormatter.fmt(f.profit()), GOOD, detail,
+					() -> Cmd.viewAuction(uuid));
+			y += R2;
+		}
+		p.text(FcfPanel.fit("click = open it, check the tooltip", w - 8), x + 4, y, DIM);
+		return y + 10;
+	}
+
+	private static int bazaar(Highlight.Painter p, int x, int y, int w, int bottom) {
+		List<BzOrders.Status> orders = BzOrders.status();
+		if (!orders.isEmpty()) {
+			section(p, x, y, w, "Your orders", orders.size() + "");
+			y += 11;
+			for (int i = 0; i < Math.min(4, orders.size()) && y + R2 <= bottom; i++) {
+				BzOrders.Status st = orders.get(i);
+				BzOrders.Order o = st.order();
+				String right = switch (st.state()) {
+					case "top" -> "✔ top";
+					case "outbid" -> "⚠ outbid";
+					case "undercut" -> "⚠ undercut";
+					case "filled" -> "✔ filled";
+					default -> "?";
+				};
+				int col = st.state().startsWith("top") || "filled".equals(st.state()) ? GOOD : "unknown".equals(st.state()) ? MUTED : WARN;
+				String detail = HudFormatter.fmt(o.price()) + (st.top() != null ? " vs " + HudFormatter.fmt(st.top()) : "")
+						+ (o.amount() > 0 ? " · " + o.filled() + "/" + o.amount() + " filled" : "");
+				row(p, x, y, w, o.side() + " " + o.name(), right, col, detail, null);
+				y += R2;
+			}
+			y += 2;
+		} else {
+			p.text(FcfPanel.fit("Open your Bazaar orders to track", w - 8), x + 4, y, DIM);
+			y += 11;
+		}
+		List<Market.BzFlip> list = Bazaar.ranking(cfg, data, budget());
+		double[] today = ProfitLog.marketTotal(ProfitLog.startOfDay(0), "BZ");
+		long age = Bazaar.snapshotAt() > 0 ? (System.currentTimeMillis() - Bazaar.snapshotAt()) / 60000 : -1;
+		long secs = Bazaar.snapshotAt() > 0 ? (System.currentTimeMillis() - Bazaar.snapshotAt()) / 1000 : -1;
+		String right = (secs >= 0 ? (cfg.bazaarRefreshMinutes <= 0 ? "live " + secs + "s" : "upd " + age + "m") : "") + (today[1] > 0 ? " · today " + (today[0] >= 0 ? "+" : "") + HudFormatter.fmt(today[0]) : "");
+		section(p, x, y, w, "Best flips", right.trim());
+		y += 11;
+		if (list.isEmpty()) {
+			p.text(FcfPanel.fit(data.bazaarAll().isEmpty() ? "Loading the bazaar…" : "Nothing fits your budget", w - 8), x + 4, y, MUTED);
+			return y + 10;
+		}
+		for (int i = 0; i < list.size() && y + R2 <= bottom; i++) {
+			Market.BzFlip f = list.get(i);
+			String name = Bazaar.name(f.id(), data);
+			String detail = String.format(Locale.ROOT, "%s× %s→%s · +%s · %s", HudFormatter.fmt((double) f.qty()),
+					HudFormatter.fmt(f.order()), HudFormatter.fmt(f.offer()), HudFormatter.fmt(f.totalProfit()), Market.dur(f.roundHours()))
+					+ Forecasts.tag(f.forecast(), f.adjSource());
+			row(p, x, y, w, name, "+" + HudFormatter.fmt(f.profitPerHour()) + "/h", GOOD, detail, () -> copyBazaar(f, name));
+			y += R2;
+		}
+		p.text(FcfPanel.fit("click ×3: open/name · amount · price", w - 8), x + 4, y, DIM);
+		return y + 10;
+	}
+
+	private static String pendingId, pendingName;
+	private static int stage;
+	private static long stageAt, bzSentAt;
+
+	/** The product you're flipping right now (clicked in the panel in the last 3 min), or null. Used by the Bazaar guide. */
+	static String pendingId() {
+		return pendingId != null && System.currentTimeMillis() - stageAt < 180_000 ? pendingId : null;
+	}
+
+	static String pendingName() {
+		return pendingId() != null ? pendingName : null;
+	}
+
+	/** Hypixel answered our /bz with something about the cookie: you have no Booster Cookie, use Search instead. */
+	static void onChat(String plain) {
+		if (System.currentTimeMillis() - bzSentAt > 4000) return;
+		if (plain.toLowerCase(Locale.ROOT).contains("cookie")) {
+			bzSentAt = 0;
+			Chat.say(HudFormatter.line("[NEF] ", HudFormatter.GOLD, "No Booster Cookie, so /bz can't open it for you. ", HudFormatter.WHITE,
+					"At the Bazaar: click Search (green box), paste (Ctrl+V), Done, then the item (green box).", HudFormatter.GRAY));
+		}
+	}
+
+	/**
+	 * Click 1: open the product (/bz <name>: with a Booster Cookie it opens the search directly) and copy its name, so
+	 *          without a cookie you click Search at the Bazaar and paste. The Bazaar guide outlines Search → the item →
+	 *          Create Buy Order.
+	 * Click 2: copy the amount (Custom amount).   Click 3: copy the price (Custom price).
+	 * Amount and price are re-computed from the live bazaar at click time.
+	 */
+	private static void copyBazaar(Market.BzFlip snap, String name) {
+		long now = System.currentTimeMillis();
+		DataClient.Live live = data.live(snap.id());
+		Market.BzFlip f = live != null ? Bazaar.flip(cfg, snap.id(), live, budget()) : snap;
+		if (f == null || f.qty() < 1) f = snap;
+		boolean same = f.id().equals(pendingId) && now - stageAt < 180_000;
+		stage = same ? stage % 3 + 1 : 1;
+		pendingId = f.id();
+		pendingName = name;
+		stageAt = now;
+		var kb = Minecraft.getInstance().keyboardHandler;
+		switch (stage) {
+			case 1 -> {
+				kb.setClipboard(name);
+				bzSentAt = now;
+				Cmd.bazaar(name);                                // you clicked it: same as typing /bz <name>
+				Chat.say(HudFormatter.line("[NEF] ", HudFormatter.GOLD, name + " picked. ", HudFormatter.WHITE,
+						"In the Bazaar click Search (green box): the name is filled in, press Done → the item (cyan box) → Create Buy Order. "
+								+ "Amount and price signs fill themselves too.", HudFormatter.GRAY));
+			}
+			case 2 -> {
+				kb.setClipboard(Long.toString(f.qty()));
+				Chat.say(HudFormatter.line("[NEF] ", HudFormatter.GOLD, "2/3 copied amount " + String.format(Locale.ROOT, "%,d", f.qty()) + ". ",
+						HudFormatter.WHITE, "Create Buy Order → Custom amount → Ctrl+V. Click the row again for the price.", HudFormatter.GRAY));
+			}
+			default -> {
+				String price = String.format(Locale.ROOT, "%.1f", f.order());
+				kb.setClipboard(price);
+				Chat.say(HudFormatter.line("[NEF] ", HudFormatter.GOLD, "3/3 copied price " + price + ". ", HudFormatter.WHITE,
+						"Custom price → Ctrl+V → confirm. When it fills: sell offer at " + HudFormatter.fmt(f.offer()) + " → +"
+								+ HudFormatter.fmt(f.totalProfit()) + " total, ~" + Market.dur(f.roundHours()) + ".", HudFormatter.GRAY));
+			}
+		}
+	}
+
+	/** Start the Bazaar click flow (open / copy name → amount → price) for any product, e.g. from Trade Desk → Signals. */
+	static void pick(String id, String name) {
+		DataClient.Live live = data.live(id);
+		Market.BzFlip f = live == null ? null : Bazaar.flip(cfg, id, live, budget());
+		if (f == null) f = new Market.BzFlip(id, live == null ? 0 : live.sell() + 0.1, live == null ? 0 : live.buy() - 0.1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0);
+		copyBazaar(f, name);
+	}
+
+	private static int craft(Highlight.Painter p, int x, int y, int w, int bottom) {
+		JsonObject cj = data.craftFlips();
+		section(p, x, y, w, "Craft flips", cj == null ? "" : "updated " + Math.max(0, (System.currentTimeMillis()
+				- (long) FcfPanel.d(cj, "updated")) / 3_600_000L) + "h ago");
+		y += 11;
+		if (cj == null || !cj.has("flips")) {
+			p.text("Loading…", x + 4, y, MUTED);
+			return y + 10;
+		}
+		double budget = budget();
+		int shown = 0;
+		JsonArray arr = cj.getAsJsonArray("flips");
+		for (JsonElement e : arr) {
+			if (y + R2 > bottom) break;
+			JsonObject r = e.getAsJsonObject();
+			if (FcfPanel.d(r, "cost") > budget) continue;
+			String name = FcfPanel.str(r, "name");
+			String where = FcfPanel.str(r, "where");
+			String detail = HudFormatter.fmt(FcfPanel.d(r, "cost")) + " → " + HudFormatter.fmt(FcfPanel.d(r, "sell"))
+					+ " " + where + " · +" + HudFormatter.fmt(FcfPanel.d(r, "profit")) + " ea";
+			row(p, x, y, w, name == null ? FcfPanel.str(r, "item") : name, "+" + HudFormatter.fmt(FcfPanel.d(r, "profit_per_day")) + "/d",
+					GOOD, detail, () -> craftChat(r));
+			y += R2;
+			shown++;
+		}
+		if (shown == 0) {
+			p.text(FcfPanel.fit("None fit your budget", w - 8), x + 4, y, MUTED);
+			return y + 10;
+		}
+		p.text(FcfPanel.fit("click = shopping list in chat", w - 8), x + 4, y, DIM);
+		return y + 10;
+	}
+
+	private static void craftChat(JsonObject r) {
+		String name = FcfPanel.str(r, "name");
+		Chat.say(HudFormatter.line("[NEF] Craft ", HudFormatter.GOLD, name == null ? FcfPanel.str(r, "item") : name, HudFormatter.WHITE,
+				": cost " + HudFormatter.fmt(FcfPanel.d(r, "cost")) + " → sell " + HudFormatter.fmt(FcfPanel.d(r, "sell")) + " on the "
+						+ FcfPanel.str(r, "where") + " → +" + HudFormatter.fmt(FcfPanel.d(r, "profit")) + " each", HudFormatter.GRAY));
+		if (r.has("ingredients")) {
+			for (JsonElement e : r.getAsJsonArray("ingredients")) {
+				JsonObject g = e.getAsJsonObject();
+				Chat.say(HudFormatter.line("   ☐ " + (long) FcfPanel.d(g, "n") + "x " + Desk.pretty(FcfPanel.str(g, "id")), HudFormatter.WHITE,
+						"  " + HudFormatter.fmt(FcfPanel.d(g, "unit")) + " each (" + FcfPanel.str(g, "how") + ")", HudFormatter.DARK));
+			}
+		}
+		String req = FcfPanel.str(r, "requires");
+		if (req != null) Chat.say(HudFormatter.line("   Requires: " + req, HudFormatter.YELLOW));
+	}
+
+	private static int watchPage;
+
+	/**
+	 * Snipe tab: the latest alerts (click = open the auction) and every item the sniper is watching with the price that
+	 * would trigger it, plus quick settings. Rules are in Sniper's class doc.
+	 */
+	private static int snipe(Highlight.Painter p, int x, int y, int w, int bottom) {
+		section(p, x, y, w, "Snipes", cfg.sniper ? "≤ " + Math.round(100 - cfg.snipeMinPercent) + "% of lowest BIN" : "off");
+		y += 12;
+		int cx = x + 3;
+		for (int pct : new int[]{25, 35, 50}) {
+			String t = pct + "% off";
+			chip(p, cx, y, t, Math.round(cfg.snipeMinPercent) == pct, () -> { cfg.snipeMinPercent = pct; cfg.save(); });
+			cx += chipW(t) + 2;
+		}
+		chip(p, cx, y, "auto-open", cfg.snipeAutoOpen, () -> { cfg.snipeAutoOpen = !cfg.snipeAutoOpen; cfg.save(); });
+		cx += chipW("auto-open") + 2;
+		chip(p, cx, y, cfg.sniper ? "on" : "off", cfg.sniper, () -> { cfg.sniper = !cfg.sniper; cfg.save(); });
+		y += 14;
+		if (!Sniper.ready()) {
+			p.text(FcfPanel.fit("Waiting for the first full AH scan (⟳ below)…", w - 8), x + 4, y, DIM);
+			return y + 11;
+		}
+		List<Sniper.Alert> al = Sniper.recent();
+		java.util.Collections.reverse(al);
+		long now = System.currentTimeMillis();
+		if (al.isEmpty()) {
+			p.text(FcfPanel.fit("No alerts yet. Big gaps are rare: try 25% off.", w - 8), x + 4, y, DIM);
+			y += 11;
+		}
+		for (int i = 0; i < al.size() && i < 5 && y + 20 <= bottom; i++) {
+			Sniper.Alert a = al.get(i);
+			boolean ok = a.status().equals("ok"), bad = a.status().startsWith("bad");
+			String mark = ok ? "✓ " : bad ? "✗ " : "… ";
+			String right = bad ? "skip" : "+" + HudFormatter.fmt(a.profit());
+			long ago = (now - a.at()) / 60000;
+			String detail = HudFormatter.fmt(a.price()) + " → " + HudFormatter.fmt(a.resale()) + " · " + (ago < 1 ? "just now" : ago + "m ago")
+					+ (bad ? " · " + a.status().substring(5) : "");
+			row(p, x, y, w, mark + a.name(), right, bad ? BAD : ok ? GOOD : 0xFFFFFF55, detail,
+					bad ? null : () -> Cmd.viewAuction(a.uuid()));
+			y += 21;
+		}
+		List<Sniper.Watch> wl = Sniper.watchList();
+		int per = Math.max(1, (bottom - y - 14) / 10);
+		int pages = Math.max(1, (wl.size() + per - 1) / per);
+		watchPage = Math.min(watchPage, pages - 1);
+		section(p, x, y, w, "Watching " + wl.size(), "alert at ≤");
+		y += 11;
+		for (int i = watchPage * per; i < Math.min(wl.size(), (watchPage + 1) * per); i++) {
+			Sniper.Watch wt = wl.get(i);
+			String right = HudFormatter.fmt(wt.trigger());
+			String name = Bazaar.name(wt.key(), data);
+			p.text(FcfPanel.fit(name + "  " + HudFormatter.fmt(wt.lowest()) + " ×" + wt.listed(), w - width(right) - 12), x + 4, y, TEXT);
+			p.text(right, x + w - width(right) - 4, y, GOOD);
+			y += 10;
+		}
+		if (pages > 1) {
+			chip(p, x + 3, y + 1, "◀", false, () -> watchPage = Math.max(0, watchPage - 1));
+			String pg = (watchPage + 1) + "/" + pages;
+			p.text(pg, x + 3 + chipW("◀") + 4, y + 2, MUTED);
+			chip(p, x + 3 + chipW("◀") + 8 + width(pg), y + 1, "▶", false, () -> watchPage = Math.min(pages - 1, watchPage + 1));
+			y += 13;
+		}
+		return y;
+	}
+
+	private static int profit(Highlight.Painter p, int x, int y, int w, int bottom) {
+		ProfitLog.Summary today = ProfitLog.summary(ProfitLog.startOfDay(0));
+		ProfitLog.Summary week = ProfitLog.summary(ProfitLog.startOfDay(6));
+		section(p, x, y, w, "Realized profit", null);
+		y += 12;
+		y = total(p, x, y, w, "Today", today);
+		y = total(p, x, y, w, "7 days", week);
+		if (week.best() != null) {
+			p.text(FcfPanel.fit("Best: " + week.best().item() + " +" + HudFormatter.fmt(week.best().profit()), w - 8), x + 4, y, MUTED);
+			y += 11;
+		}
+		if (week.flips() == 0) {
+			p.text(FcfPanel.fit("No flips logged yet: buys + sells", w - 8), x + 4, y, DIM);
+			p.text(FcfPanel.fit("from chat are matched for you", w - 8), x + 4, y + 9, DIM);
+			return y + 20;
+		}
+		y += 2;
+		section(p, x, y, w, "Recent", null);
+		y += 11;
+		for (int i = 0; i < week.recent().size() && y + 10 <= bottom && i < 8; i++) {
+			ProfitLog.Flip f = week.recent().get(i);
+			String right = (f.profit() >= 0 ? "+" : "") + HudFormatter.fmt(f.profit());
+			p.text(FcfPanel.fit(f.item(), w - width(right) - 12), x + 4, y, TEXT);
+			p.text(right, x + w - width(right) - 4, y, f.profit() >= 0 ? GOOD : BAD);
+			y += 10;
+		}
+		return y;
+	}
+
+	private static int total(Highlight.Painter p, int x, int y, int w, String label, ProfitLog.Summary s) {
+		String v = (s.profit() >= 0 ? "+" : "") + HudFormatter.fmt(s.profit());
+		p.text(label, x + 4, y, TEXT);
+		p.text(v, x + 46, y, s.profit() >= 0 ? GOOD : BAD);
+		p.text(s.flips() + " flips", x + w - width(s.flips() + " flips") - 4, y, MUTED);
+		return y + 11;
+	}
+
+	// ------------------------------------------------------------------ clicks
+	/** Returns true if the click hit the FLIP button or panel (the menu underneath never sees it). */
+	static boolean click(Screen s, double mx, double my) {
+		if (!active(s)) return false;
+		int[] box = GuiPos.box(s);
+		int bx = Math.min(box[0] + box[2] + 3, s.width - BTN_W - 2), by = box[1];
+		if (mx >= bx && mx <= bx + BTN_W && my >= by && my <= by + BTN_H) {
+			open = !open;
+			if (open) {
+				viewAt = 0;
+				AhScanner.poke(cfg, false);
+			}
+			return true;
+		}
+		if (!open) return false;
+		for (Hit h : new ArrayList<>(hits)) {
+			if (mx >= h.x1() && mx <= h.x2() && my >= h.y1() && my <= h.y2()) {
+				h.action().run();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** True when (mx, my) is over the open panel: the click must not reach the slots underneath. */
+	static boolean covers(Screen s, double mx, double my) {
+		if (!open || !active(s)) return false;
+		for (Hit h : hits) if (mx >= h.x1() && mx <= h.x2() && my >= h.y1() && my <= h.y2()) return true;
+		int[] box = GuiPos.box(s);
+		int bx = Math.min(box[0] + box[2] + 3, s.width - BTN_W - 2), by = box[1];
+		return mx >= bx && mx <= bx + BTN_W && my >= by && my <= by + BTN_H;
+	}
+}

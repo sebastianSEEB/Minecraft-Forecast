@@ -1,0 +1,37 @@
+// Build file for Minecraft 26.x (unobfuscated: no mappings, no remapping, Java 25).
+// Based on FabricMC/fabric-example-mod branches 26.1.2 / 26.2 / 26.3.
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+	archivesName = "notenoughflips"
+}
+
+// the few lines that differ between Minecraft versions live in src/compat/<version>
+sourceSets.main.java.srcDir "src/compat/mc26/java"
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+	def version = project.version
+	def mcRange = project.findProperty("mc_range") ?: "~${project.minecraft_version}"
+	inputs.property "version", version
+	inputs.property "mcRange", mcRange
+	filesMatching("fabric.mod.json") {
+		expand "version": version, "mc_range": mcRange
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
